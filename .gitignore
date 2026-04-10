@@ -1,0 +1,50 @@
+# Python bytecode and virtualenvs
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+pip-wheel-metadata/
+.venv/
+venv/
+env/
+
+# Python tooling caches and reports
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local data and logs
+*.db
+*.sqlite3
+*.log
+
+# Environment files
+.env
+**/.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+# Node / Vite build outputs
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

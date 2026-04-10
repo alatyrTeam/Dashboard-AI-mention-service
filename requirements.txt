@@ -1,0 +1,8 @@
+# Core backend runtime
+fastapi>=0.115
+httpx>=0.25
+pydantic>=2.0
+psycopg>=3.3
+python-dotenv>=1.0
+sqlalchemy>=2.0
+uvicorn>=0.35

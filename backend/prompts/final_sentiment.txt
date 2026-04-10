@@ -1,0 +1,10 @@
+Provide one concise final sentiment analysis for the selected batch outputs.
+Focus on tone, reputation risk, and whether the brand/domain is framed positively, negatively, or neutrally.
+
+Keyword: {keyword}
+Domain: {domain}
+Brand variations: {brand}
+Project: {project}
+
+Selected outputs:
+{selected_outputs}

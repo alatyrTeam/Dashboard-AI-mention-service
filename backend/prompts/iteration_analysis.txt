@@ -1,0 +1,26 @@
+Analyze the GPT and Gemini outputs below.
+Return valid JSON with exactly these keys:
+- response_count
+- brand_list
+- citation_format
+
+Rules:
+- response_count must be a number or null.
+- brand_list must be a comma-separated string or null.
+- citation_format
+- Mention format: plain text (no link) or URL/link or N/A if there is no text and no url.
+- Allowed values: "text" | "url" or "N/A"
+- Example: text, url     or     N/A if there is 6 N/A
+- Return JSON only. Do not wrap the JSON in markdown.
+
+Keyword: {keyword}
+Domain: {domain}
+Brand variations: {brand}
+Project: {project}
+Iteration: {iteration_number}
+
+GPT output:
+{gpt_output}
+
+Gemini output:
+{gem_output}
