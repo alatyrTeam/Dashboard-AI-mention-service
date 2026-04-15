@@ -1,0 +1,20 @@
+[Unit]
+Description=Rankberry Dashboard Worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=rankberry
+Group=rankberry
+WorkingDirectory=/srv/rankberry-dashboard
+EnvironmentFile=-/srv/rankberry-dashboard/.env
+Environment=WORKER_CONCURRENCY=1
+ExecStart=/srv/rankberry-dashboard/.venv/bin/python -u -m backend.app.worker
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

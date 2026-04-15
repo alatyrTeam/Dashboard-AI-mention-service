@@ -10,14 +10,9 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = PROJECT_ROOT / "backend"
 PROMPTS_ROOT = BACKEND_ROOT / "prompts"
-APP_ROOT = Path(__file__).resolve().parent
 
-for dotenv_path in (
-    PROJECT_ROOT / ".env",
-    BACKEND_ROOT / ".env",
-    APP_ROOT / ".env",
-):
-    load_dotenv(dotenv_path, override=False)
+# Keep the root .env as the single source of truth for both backend and frontend.
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 
 def _read_env(name: str, default: str | None = None) -> str | None:

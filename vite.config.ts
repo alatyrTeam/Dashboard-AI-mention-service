@@ -1,14 +1,18 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const API_PROXY_TARGET = "http://127.0.0.1:3001";
+
 export default defineConfig({
-  envDir: "backend/app",
   plugins: [react()],
   server: {
     host: "0.0.0.0",
     allowedHosts: ["meatal-lanora-thornily.ngrok-free.dev"],
     proxy: {
-      "/api": "http://localhost:3001",
+      "/api": {
+        target: API_PROXY_TARGET,
+        changeOrigin: true,
+      },
     },
   },
 });

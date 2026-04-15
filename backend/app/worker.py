@@ -3,6 +3,8 @@ from __future__ import annotations
 import threading
 import time
 
+from sqlalchemy.exc import OperationalError
+
 from backend.app.audit import record_log
 from backend.app.config import get_settings
 from backend.app.migrations.runner import run_pending_migrations
@@ -15,7 +17,24 @@ def worker_loop(worker_name: str) -> None:
     service = get_run_service()
 
     while True:
-        claimed = service.claim_next_run()
+        try:
+            claimed = service.claim_next_run()
+        except OperationalError as error:
+            error_message = compact_error_message(error)
+            print(f"[{worker_name}] claim_next_run failed: {error_message}")
+            record_log(
+                level="error",
+                category="worker",
+                action="run.claim_failed",
+                message=f"{worker_name} claim_next_run failed",
+                details={
+                    "worker": worker_name,
+                    "error": error_message,
+                },
+            )
+            time.sleep(settings.queue_poll_seconds)
+            continue
+
         if claimed is None:
             time.sleep(settings.queue_poll_seconds)
             continue

@@ -1,0 +1,19 @@
+[Unit]
+Description=Rankberry Dashboard Backend
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=rankberry
+Group=rankberry
+WorkingDirectory=/srv/rankberry-dashboard
+EnvironmentFile=-/srv/rankberry-dashboard/.env
+ExecStart=/srv/rankberry-dashboard/.venv/bin/python -u -m uvicorn backend.app.main:app --host 127.0.0.1 --port 3001 --proxy-headers
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

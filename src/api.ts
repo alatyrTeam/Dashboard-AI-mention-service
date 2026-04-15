@@ -1,10 +1,12 @@
-﻿type ApiRequestOptions = {
+type ApiRequestOptions = {
   method?: string;
   token?: string | null;
   body?: unknown;
   query?: Record<string, string | number | null | undefined>;
   auditSource?: "user" | "auto";
 };
+
+const BACKEND_PROXY_TARGET = "http://127.0.0.1:3001";
 
 function buildQueryString(query?: ApiRequestOptions["query"]): string {
   if (!query) {
@@ -23,30 +25,47 @@ function buildQueryString(query?: ApiRequestOptions["query"]): string {
   return serialized ? `?${serialized}` : "";
 }
 
+function buildBackendUnavailableMessage(path: string, reason?: string) {
+  const suffix = reason ? ` (${reason})` : "";
+  return `Unable to reach the backend API at ${path}. Check the backend service listening on ${BACKEND_PROXY_TARGET}.${suffix}`;
+}
+
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
-  const response = await fetch(`${path}${buildQueryString(options.query)}`, {
-    method: options.method || "GET",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-      ...(options.auditSource ? { "X-Audit-Source": options.auditSource } : {}),
-    },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${path}${buildQueryString(options.query)}`, {
+      method: options.method || "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        ...(options.auditSource ? { "X-Audit-Source": options.auditSource } : {}),
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+  } catch (error) {
+    const reason = error instanceof Error && error.message ? error.message : undefined;
+    throw new Error(buildBackendUnavailableMessage(path, reason));
+  }
 
   if (!response.ok) {
+    if (response.status === 502 || response.status === 503) {
+      throw new Error(buildBackendUnavailableMessage(path));
+    }
+
     let message = `Request failed with ${response.status}`;
-    try {
-      const payload = (await response.json()) as { detail?: string };
-      if (payload.detail) {
-        message = payload.detail;
+    const rawBody = await response.text();
+    if (rawBody.trim()) {
+      try {
+        const payload = JSON.parse(rawBody) as { detail?: string };
+        if (payload.detail) {
+          message = payload.detail;
+        }
+      } catch {
+        message = rawBody.trim();
       }
-    } catch {
-      // Ignore JSON parse failures and fall back to the generic message.
     }
     throw new Error(message);
   }
 
   return (await response.json()) as T;
 }
-
