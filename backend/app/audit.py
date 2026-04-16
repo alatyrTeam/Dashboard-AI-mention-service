@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 import json
 import uuid
 from collections.abc import Mapping
@@ -9,13 +11,13 @@ from backend.app.db import SessionLocal
 from backend.app.models import AppLog
 
 
-def _serialize_details(details: Mapping[str, Any] | None) -> str | None:
+def _serialize_details(details: typing.Optional[Mapping[str, Any]]) -> typing.Optional[str]:
     if not details:
         return None
     return json.dumps(details, ensure_ascii=False, default=str, separators=(",", ":"))
 
 
-def decode_details_json(raw_details: str | None) -> dict[str, object]:
+def decode_details_json(raw_details: typing.Optional[str]) -> dict[str, object]:
     if not raw_details:
         return {}
 
@@ -35,16 +37,16 @@ def record_log(
     category: str = "api",
     action: str,
     message: str,
-    actor_user_id: uuid.UUID | None = None,
-    actor_email: str | None = None,
-    actor_username: str | None = None,
-    entity_type: str | None = None,
-    entity_id: str | None = None,
-    path: str | None = None,
-    method: str | None = None,
-    status_code: int | None = None,
-    duration_ms: int | None = None,
-    details: Mapping[str, Any] | None = None,
+    actor_user_id: typing.Optional[uuid.UUID] = None,
+    actor_email: typing.Optional[str] = None,
+    actor_username: typing.Optional[str] = None,
+    entity_type: typing.Optional[str] = None,
+    entity_id: typing.Optional[str] = None,
+    path: typing.Optional[str] = None,
+    method: typing.Optional[str] = None,
+    status_code: typing.Optional[int] = None,
+    duration_ms: typing.Optional[int] = None,
+    details: typing.Optional[Mapping[str, Any]] = None,
 ) -> None:
     try:
         with SessionLocal() as session:

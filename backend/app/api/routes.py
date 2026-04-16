@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 import uuid
 from datetime import date
 
@@ -19,7 +21,7 @@ from backend.app.utils import utcnow
 router = APIRouter(prefix="/api")
 
 
-def _sum_costs(*values: float | None) -> float | None:
+def _sum_costs(*values: typing.Optional[float]) -> typing.Optional[float]:
     known_values = [value for value in values if value is not None]
     if not known_values:
         return None
@@ -356,11 +358,11 @@ def get_run_detail(
 
 @router.get("/history")
 def get_history(
-    project: str | None = Query(default=None),
-    prompt: str | None = Query(default=None),
-    user: str | None = Query(default=None),
-    date_from: date | None = Query(default=None),
-    date_to: date | None = Query(default=None),
+    project: typing.Optional[str] = Query(default=None),
+    prompt: typing.Optional[str] = Query(default=None),
+    user: typing.Optional[str] = Query(default=None),
+    date_from: typing.Optional[date] = Query(default=None),
+    date_to: typing.Optional[date] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_db_session),
@@ -389,10 +391,10 @@ def get_history(
 
 @router.get("/outputs")
 def get_outputs(
-    project: str | None = Query(default=None),
-    prompt: str | None = Query(default=None),
-    local_date: date | None = Query(default=None),
-    tz_offset_minutes: int | None = Query(default=None),
+    project: typing.Optional[str] = Query(default=None),
+    prompt: typing.Optional[str] = Query(default=None),
+    local_date: typing.Optional[date] = Query(default=None),
+    tz_offset_minutes: typing.Optional[int] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_db_session),
@@ -420,8 +422,8 @@ def get_outputs(
 
 @router.get("/overview/summary")
 def get_overview_summary(
-    project: str | None = Query(default=None),
-    user_id: uuid.UUID | None = Query(default=None),
+    project: typing.Optional[str] = Query(default=None),
+    user_id: typing.Optional[uuid.UUID] = Query(default=None),
     session: Session = Depends(get_db_session),
     current_user: AuthenticatedUser = Depends(get_current_user),
 ) -> dict[str, object]:
@@ -437,8 +439,8 @@ def get_overview_summary(
 
 @router.get("/logs")
 def get_logs(
-    level: str | None = Query(default=None),
-    query: str | None = Query(default=None),
+    level: typing.Optional[str] = Query(default=None),
+    query: typing.Optional[str] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
     session: Session = Depends(get_db_session),

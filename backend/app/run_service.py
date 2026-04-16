@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 import json
 import uuid
 from collections import defaultdict
@@ -31,7 +33,7 @@ class RunSnapshot:
     domain: str
     brand: str
     prompt: str
-    project: str | None
+    project: typing.Optional[str]
 
 
 class StopRequestedError(RuntimeError):
@@ -87,8 +89,8 @@ class RunService:
         domain: str,
         brand: str,
         prompt: str,
-        project: str | None,
-        rows: list[dict[str, str]] | None = None,
+        project: typing.Optional[str],
+        rows: typing.Optional[list[dict[str, str]]] = None,
     ) -> Draft:
         draft = session.execute(select(Draft).where(Draft.user_id == user_id)).scalar_one_or_none()
         if draft is None:
@@ -130,7 +132,7 @@ class RunService:
         domain: str,
         brand: str,
         prompt: str,
-        project: str | None,
+        project: typing.Optional[str],
     ) -> Run:
         keyword = keyword.strip()
         domain = domain.strip()
@@ -167,7 +169,7 @@ class RunService:
         session.refresh(run)
         return run
 
-    def claim_next_run(self) -> RunSnapshot | None:
+    def claim_next_run(self) -> typing.Optional[RunSnapshot]:
         with self.session_factory() as session:
             running_users_subquery = select(Run.user_id).where(Run.status == "running")
 
@@ -226,7 +228,7 @@ class RunService:
         user_id: uuid.UUID,
         run_id: uuid.UUID,
         is_admin: bool = False,
-    ) -> tuple[Run, list[Output], RunResult | None]:
+    ) -> tuple[Run, list[Output], typing.Optional[RunResult]]:
         statement = select(Run).where(Run.id == run_id)
         if not is_admin:
             statement = statement.where(Run.user_id == user_id)
@@ -266,7 +268,7 @@ class RunService:
             ).scalars()
         )
 
-    def list_user_project_options(self, session: Session, *, user_id: uuid.UUID | None) -> list[str]:
+    def list_user_project_options(self, session: Session, *, user_id: typing.Optional[uuid.UUID]) -> list[str]:
         project_options: set[str] = set()
 
         statement = select(Run.project).where(Run.project.is_not(None)).where(Run.project != "")
@@ -361,11 +363,11 @@ class RunService:
         *,
         user_id: uuid.UUID,
         is_admin: bool,
-        project: str | None,
-        prompt: str | None,
-        user_query: str | None,
-        date_from: date | None,
-        date_to: date | None,
+        project: typing.Optional[str],
+        prompt: typing.Optional[str],
+        user_query: typing.Optional[str],
+        date_from: typing.Optional[date],
+        date_to: typing.Optional[date],
         page: int,
         page_size: int,
     ) -> tuple[list[dict[str, object]], int]:
@@ -399,8 +401,8 @@ class RunService:
         session: Session,
         *,
         user_id: uuid.UUID,
-        project: str | None,
-        selected_user_id: uuid.UUID | None = None,
+        project: typing.Optional[str],
+        selected_user_id: typing.Optional[uuid.UUID] = None,
         is_admin: bool = False,
     ) -> dict[str, object]:
         all_rows = list(
@@ -469,10 +471,10 @@ class RunService:
         session: Session,
         *,
         user_id: uuid.UUID,
-        project: str | None,
-        prompt: str | None,
-        local_date: date | None,
-        tz_offset_minutes: int | None,
+        project: typing.Optional[str],
+        prompt: typing.Optional[str],
+        local_date: typing.Optional[date],
+        tz_offset_minutes: typing.Optional[int],
         page: int,
         page_size: int,
     ) -> tuple[list[dict[str, object]], int]:
@@ -494,10 +496,10 @@ class RunService:
     def _process_iteration(self, run: RunSnapshot, iteration_number: int) -> None:
         prompt = self._build_generation_prompt(run, iteration_number)
 
-        gpt_output: str | None = None
-        gem_output: str | None = None
-        gpt_result: TextGenerationResult | None = None
-        gem_result: TextGenerationResult | None = None
+        gpt_output: typing.Optional[str] = None
+        gem_output: typing.Optional[str] = None
+        gpt_result: typing.Optional[TextGenerationResult] = None
+        gem_result: typing.Optional[TextGenerationResult] = None
         generation_errors: list[str] = []
 
         try:
@@ -685,7 +687,7 @@ class RunService:
         run_result: RunResult,
         run: Run,
         *,
-        username: str | None = None,
+        username: typing.Optional[str] = None,
     ) -> dict[str, object]:
         return {
             "run_id": str(run.id),
@@ -714,11 +716,11 @@ class RunService:
         self,
         statement,
         *,
-        project: str | None,
-        prompt: str | None,
-        user_query: str | None,
-        date_from: date | None,
-        date_to: date | None,
+        project: typing.Optional[str],
+        prompt: typing.Optional[str],
+        user_query: typing.Optional[str],
+        date_from: typing.Optional[date],
+        date_to: typing.Optional[date],
     ):
         if project:
             statement = statement.where(Run.project == project)
@@ -734,7 +736,7 @@ class RunService:
             statement = statement.where(Run.created_at < end_dt)
         return statement
 
-    def _project_matches(self, project_value: str | None, selected_project: str | None) -> bool:
+    def _project_matches(self, project_value: typing.Optional[str], selected_project: typing.Optional[str]) -> bool:
         if selected_project is None:
             return True
         return (project_value or "").strip() == selected_project
@@ -754,8 +756,8 @@ class RunService:
         self,
         rows: list[tuple[RunResult, Run]],
         *,
-        run_costs: dict[uuid.UUID, float] | None = None,
-    ) -> dict[str, int | float]:
+        run_costs: typing.Optional[dict[uuid.UUID, float]] = None,
+    ) -> dict[str, typing.Union[int, float]]:
         return {
             "total_results": len(rows),
             "brand_matches": sum(
@@ -768,7 +770,7 @@ class RunService:
             "spend_usd": round(sum((run_costs or {}).get(run.id, 0.0) for _, run in rows), 8),
         }
 
-    def _collect_project_options(self, session: Session, *, user_id: uuid.UUID | None) -> list[str]:
+    def _collect_project_options(self, session: Session, *, user_id: typing.Optional[uuid.UUID]) -> list[str]:
         project_options: set[str] = set()
 
         run_statement = select(Run.project).where(Run.project.is_not(None)).where(Run.project != "")
@@ -840,7 +842,7 @@ class RunService:
             ]
         )
 
-    def _normalize_draft_rows(self, rows: list[dict[str, str]] | None) -> list[dict[str, str]]:
+    def _normalize_draft_rows(self, rows: typing.Optional[list[dict[str, str]]]) -> list[dict[str, str]]:
         normalized: list[dict[str, str]] = []
         for row in rows or []:
             normalized.append(
@@ -857,7 +859,7 @@ class RunService:
     def _serialize_draft_rows(self, rows: list[dict[str, str]]) -> str:
         return json.dumps(rows)
 
-    def _deserialize_draft_rows(self, rows_json: str | None) -> list[dict[str, str]]:
+    def _deserialize_draft_rows(self, rows_json: typing.Optional[str]) -> list[dict[str, str]]:
         if not rows_json:
             return []
         try:
@@ -901,7 +903,7 @@ class RunService:
         self,
         rows: list[tuple[RunResult, Run]],
         *,
-        run_costs: dict[uuid.UUID, float] | None = None,
+        run_costs: typing.Optional[dict[uuid.UUID, float]] = None,
         months: int = 12,
     ) -> list[dict[str, object]]:
         today = utcnow().date().replace(day=1)
@@ -915,7 +917,7 @@ class RunService:
                 current = current.replace(month=current.month - 1)
         month_sequence = list(reversed(month_values))
 
-        buckets: dict[str, dict[str, int | float]] = defaultdict(
+        buckets: dict[str, dict[str, typing.Union[int, float]]] = defaultdict(
             lambda: {"brand_matches": 0, "domain_matches": 0, "total_runs": 0, "spend_usd": 0.0}
         )
         for run_result, run in rows:
@@ -967,7 +969,7 @@ class RunService:
 
         return {run_id: round(total, 8) for run_id, total in costs.items()}
 
-    def _format_username(self, username: str | None, user_id: uuid.UUID) -> str:
+    def _format_username(self, username: typing.Optional[str], user_id: uuid.UUID) -> str:
         cleaned = (username or "").strip()
         if cleaned:
             return cleaned

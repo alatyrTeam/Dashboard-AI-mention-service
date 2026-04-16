@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 from collections.abc import Generator
 
 from sqlalchemy import create_engine
@@ -16,7 +18,7 @@ class Base(DeclarativeBase):
 def build_engine(
     database_url: str,
     *,
-    pool_mode: str | None = None,
+    pool_mode: typing.Optional[str] = None,
     pool_size: int = 1,
     max_overflow: int = 0,
 ):

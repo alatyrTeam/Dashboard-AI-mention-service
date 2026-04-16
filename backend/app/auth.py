@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 import time
 import uuid
 from dataclasses import dataclass
@@ -22,7 +24,7 @@ class AuthenticatedUser:
     is_admin: bool
 
 
-def can_view_logs(email: str | None) -> bool:
+def can_view_logs(email: typing.Optional[str]) -> bool:
     if not email:
         return False
 
@@ -34,7 +36,7 @@ def can_view_logs(email: str | None) -> bool:
 
 def get_current_user(
     request: Request,
-    authorization: str | None = Header(default=None),
+    authorization: typing.Optional[str] = Header(default=None),
 ) -> AuthenticatedUser:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token.")

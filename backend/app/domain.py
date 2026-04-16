@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 from dataclasses import dataclass
 from statistics import mean
 from urllib.parse import urlparse
@@ -8,15 +10,15 @@ from urllib.parse import urlparse
 @dataclass(frozen=True)
 class IterationLike:
     iteration_number: int
-    gpt_output: str | None
-    gem_output: str | None
+    gpt_output: typing.Optional[str]
+    gem_output: typing.Optional[str]
     gpt_domain_mention: bool
     gem_domain_mention: bool
     gpt_brand_mention: bool
     gem_brand_mention: bool
-    response_count: float | None
-    brand_list: str | None
-    citation_format: str | None
+    response_count: typing.Optional[float]
+    brand_list: typing.Optional[str]
+    citation_format: typing.Optional[str]
 
 
 @dataclass(frozen=True)
@@ -27,7 +29,7 @@ class SentimentInput:
     mentioned: bool
 
 
-def split_brand_variations(raw_brand: str | None) -> list[str]:
+def split_brand_variations(raw_brand: typing.Optional[str]) -> list[str]:
     seen: set[str] = set()
     variations: list[str] = []
     for chunk in (raw_brand or "").split(","):
@@ -42,7 +44,7 @@ def split_brand_variations(raw_brand: str | None) -> list[str]:
     return variations
 
 
-def normalize_domain_variations(raw_domain: str | None) -> list[str]:
+def normalize_domain_variations(raw_domain: typing.Optional[str]) -> list[str]:
     domain = (raw_domain or "").strip().lower()
     if not domain:
         return []
@@ -68,18 +70,18 @@ def normalize_domain_variations(raw_domain: str | None) -> list[str]:
     return result
 
 
-def _contains_any(text: str | None, variants: list[str]) -> bool:
+def _contains_any(text: typing.Optional[str], variants: list[str]) -> bool:
     haystack = (text or "").lower()
     return any(variant in haystack for variant in variants if variant)
 
 
-def detect_mentions(output_text: str | None, raw_domain: str | None, raw_brand: str | None) -> tuple[bool, bool]:
+def detect_mentions(output_text: typing.Optional[str], raw_domain: typing.Optional[str], raw_brand: typing.Optional[str]) -> tuple[bool, bool]:
     domain_match = _contains_any(output_text, normalize_domain_variations(raw_domain))
     brand_match = _contains_any(output_text, [item.lower() for item in split_brand_variations(raw_brand)])
     return domain_match, brand_match
 
 
-def merge_brand_lists(values: list[str | None]) -> str | None:
+def merge_brand_lists(values: list[typing.Optional[str]]) -> typing.Optional[str]:
     seen: set[str] = set()
     merged: list[str] = []
     for value in values:
@@ -95,7 +97,7 @@ def merge_brand_lists(values: list[str | None]) -> str | None:
     return ", ".join(merged) if merged else None
 
 
-def normalize_citation_format(value: str | None) -> str | None:
+def normalize_citation_format(value: typing.Optional[str]) -> typing.Optional[str]:
     categories: set[str] = set()
     saw_na = False
 
@@ -120,7 +122,7 @@ def normalize_citation_format(value: str | None) -> str | None:
     return None
 
 
-def merge_citation_formats(values: list[str | None]) -> str | None:
+def merge_citation_formats(values: list[typing.Optional[str]]) -> typing.Optional[str]:
     categories: set[str] = set()
     saw_na = False
 
@@ -142,7 +144,7 @@ def merge_citation_formats(values: list[str | None]) -> str | None:
     return None
 
 
-def average_response_count(values: list[float | None]) -> float | None:
+def average_response_count(values: list[typing.Optional[float]]) -> typing.Optional[float]:
     actual = [value for value in values if value is not None]
     if not actual:
         return None

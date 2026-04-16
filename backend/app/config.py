@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -15,7 +17,7 @@ PROMPTS_ROOT = BACKEND_ROOT / "prompts"
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 
-def _read_env(name: str, default: str | None = None) -> str | None:
+def _read_env(name: str, default: typing.Optional[str] = None) -> typing.Optional[str]:
     value = os.getenv(name)
     if value is None:
         return default
@@ -23,7 +25,7 @@ def _read_env(name: str, default: str | None = None) -> str | None:
     return value or default
 
 
-def _derive_supabase_url(database_url: str | None) -> str | None:
+def _derive_supabase_url(database_url: typing.Optional[str]) -> typing.Optional[str]:
     if not database_url:
         return None
     parsed = urlparse(database_url)
@@ -35,7 +37,7 @@ def _derive_supabase_url(database_url: str | None) -> str | None:
     return None
 
 
-def _is_supabase_pooler_host(database_url: str | None) -> bool:
+def _is_supabase_pooler_host(database_url: typing.Optional[str]) -> bool:
     if not database_url:
         return False
     hostname = urlparse(database_url).hostname or ""
@@ -63,7 +65,7 @@ def _replace_database_port(database_url: str, port: int) -> str:
     return urlunparse(parsed._replace(netloc=netloc))
 
 
-def _runtime_database_url(database_url: str | None) -> str | None:
+def _runtime_database_url(database_url: typing.Optional[str]) -> typing.Optional[str]:
     if not database_url:
         return None
     if _is_supabase_pooler_host(database_url):
@@ -71,7 +73,7 @@ def _runtime_database_url(database_url: str | None) -> str | None:
     return database_url
 
 
-def _parse_email_list(raw_value: str | None) -> tuple[str, ...]:
+def _parse_email_list(raw_value: typing.Optional[str]) -> tuple[str, ...]:
     if not raw_value:
         return ()
 
@@ -94,10 +96,10 @@ class Settings:
     db_pool_size: int
     db_max_overflow: int
     admin_email: str
-    supabase_url: str | None
-    supabase_anon_key: str | None
-    openai_api_key: str | None
-    gemini_api_key: str | None
+    supabase_url: typing.Optional[str]
+    supabase_anon_key: typing.Optional[str]
+    openai_api_key: typing.Optional[str]
+    gemini_api_key: typing.Optional[str]
     openai_model: str
     gemini_model: str
     gemini_analysis_model: str

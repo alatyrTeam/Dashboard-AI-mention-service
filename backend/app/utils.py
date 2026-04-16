@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 import json
 import re
 from datetime import datetime, timezone
@@ -36,14 +38,14 @@ def extract_json_object(raw_text: str) -> dict[str, Any]:
     return parsed
 
 
-def normalize_csv_text(value: str | None) -> str | None:
+def normalize_csv_text(value: typing.Optional[str]) -> typing.Optional[str]:
     if value is None:
         return None
     cleaned = str(value).strip()
     return cleaned or None
 
 
-def coerce_float(value: Any) -> float | None:
+def coerce_float(value: Any) -> typing.Optional[float]:
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):

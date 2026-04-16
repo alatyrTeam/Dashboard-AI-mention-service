@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 import json
 import time
 from dataclasses import dataclass
@@ -33,24 +35,24 @@ class ModelPricing:
 class LLMUsage:
     provider: str
     model: str
-    prompt_tokens: int | None
-    completion_tokens: int | None
-    total_tokens: int | None
-    estimated_cost_usd: float | None
+    prompt_tokens: typing.Optional[int]
+    completion_tokens: typing.Optional[int]
+    total_tokens: typing.Optional[int]
+    estimated_cost_usd: typing.Optional[float]
 
 
 @dataclass(frozen=True)
 class TextGenerationResult:
     text: str
-    usage: LLMUsage | None = None
+    usage: typing.Optional[LLMUsage] = None
 
 
 @dataclass(frozen=True)
 class IterationAnalysis:
-    response_count: float | None
-    brand_list: str | None
-    citation_format: str | None
-    usage: LLMUsage | None = None
+    response_count: typing.Optional[float]
+    brand_list: typing.Optional[str]
+    citation_format: typing.Optional[str]
+    usage: typing.Optional[LLMUsage] = None
 
 
 # Pricing snapshots checked against the providers' public pricing pages on 2026-04-01.
@@ -140,7 +142,7 @@ class LLMClient:
         keyword: str,
         domain: str,
         brand: str,
-        project: str | None,
+        project: typing.Optional[str],
         iteration_number: int,
         gpt_output: str,
         gem_output: str,
@@ -182,7 +184,7 @@ class LLMClient:
         keyword: str,
         domain: str,
         brand: str,
-        project: str | None,
+        project: typing.Optional[str],
         selected_inputs: list[SentimentInput],
     ) -> TextGenerationResult:
         prompt = self.final_sentiment_template.format(
@@ -196,7 +198,7 @@ class LLMClient:
 
     def call_with_retry(self, operation_name: str, callback):
         delay_seconds = 1.0
-        last_error: Exception | None = None
+        last_error: typing.Optional[Exception] = None
         for attempt in range(1, self.settings.max_llm_retries + 1):
             try:
                 return callback()
@@ -286,7 +288,7 @@ class LLMClient:
         raise NonRetryableLLMError(
             body_text or f"Provider request failed with {response.status_code}.")
 
-    def _extract_openai_usage(self, response: dict[str, object], configured_model: str) -> LLMUsage | None:
+    def _extract_openai_usage(self, response: dict[str, object], configured_model: str) -> typing.Optional[LLMUsage]:
         usage = response.get("usage")
         if not isinstance(usage, dict):
             return None
@@ -310,7 +312,7 @@ class LLMClient:
             ),
         )
 
-    def _extract_gemini_usage(self, response: dict[str, object], configured_model: str) -> LLMUsage | None:
+    def _extract_gemini_usage(self, response: dict[str, object], configured_model: str) -> typing.Optional[LLMUsage]:
         usage = response.get("usageMetadata")
         if not isinstance(usage, dict):
             return None
@@ -341,9 +343,9 @@ class LLMClient:
         *,
         provider: str,
         model: str,
-        prompt_tokens: int | None,
-        completion_tokens: int | None,
-    ) -> float | None:
+        prompt_tokens: typing.Optional[int],
+        completion_tokens: typing.Optional[int],
+    ) -> typing.Optional[float]:
         if prompt_tokens is None or completion_tokens is None:
             return None
 
@@ -357,7 +359,7 @@ class LLMClient:
         ) / 1_000_000
         return round(estimated_cost, 8)
 
-    def _match_model_pricing(self, provider: str, model: str) -> ModelPricing | None:
+    def _match_model_pricing(self, provider: str, model: str) -> typing.Optional[ModelPricing]:
         normalized_model = model.strip().lower()
         pricing_table = OPENAI_MODEL_PRICING if provider == "openai" else GEMINI_MODEL_PRICING
         for base_name, pricing in pricing_table.items():
@@ -365,7 +367,7 @@ class LLMClient:
                 return pricing
         return None
 
-    def _coerce_int(self, value: object) -> int | None:
+    def _coerce_int(self, value: object) -> typing.Optional[int]:
         if value is None:
             return None
         if isinstance(value, bool):

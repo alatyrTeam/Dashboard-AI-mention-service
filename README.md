@@ -18,7 +18,7 @@ The repository includes ready-to-install unit templates at:
 Recommended production commands:
 
 ```bash
-python3 -m venv .venv
+python3.9 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
 npm ci

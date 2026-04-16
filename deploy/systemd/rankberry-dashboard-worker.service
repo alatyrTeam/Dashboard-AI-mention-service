@@ -10,7 +10,7 @@ Group=rankberry
 WorkingDirectory=/srv/rankberry-dashboard
 EnvironmentFile=-/srv/rankberry-dashboard/.env
 Environment=WORKER_CONCURRENCY=1
-ExecStart=/srv/rankberry-dashboard/.venv/bin/python -u -m backend.app.worker
+ExecStart=/srv/rankberry-dashboard/.venv/bin/python3.9 -u -m backend.app.worker
 Restart=always
 RestartSec=5
 TimeoutStopSec=30

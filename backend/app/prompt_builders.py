@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing
 
 def build_generation_request_prompt(
     *,
@@ -7,7 +8,7 @@ def build_generation_request_prompt(
     keyword: str,
     domain: str,
     brand: str,
-    project: str | None,
+    project: typing.Optional[str],
     iteration_number: int,
 ) -> str:
     """Single edit point for the first GPT/Gemini request in every iteration.
