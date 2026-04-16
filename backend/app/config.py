@@ -6,8 +6,10 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import quote, unquote, urlparse, urlunparse
+from urllib.parse import unquote, urlparse
 from dotenv import load_dotenv
+
+from backend.app.database_url import normalize_postgresql_url
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = PROJECT_ROOT / "backend"
@@ -44,33 +46,12 @@ def _is_supabase_pooler_host(database_url: typing.Optional[str]) -> bool:
     return hostname.endswith(".pooler.supabase.com")
 
 
-def _replace_database_port(database_url: str, port: int) -> str:
-    parsed = urlparse(database_url)
-    if not parsed.hostname:
-        return database_url
-
-    username = parsed.username
-    password = parsed.password
-    userinfo = ""
-    if username is not None:
-        userinfo = quote(username, safe="")
-        if password is not None:
-            userinfo = f"{userinfo}:{quote(password, safe='')}"
-        userinfo = f"{userinfo}@"
-
-    host = parsed.hostname
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"
-    netloc = f"{userinfo}{host}:{port}"
-    return urlunparse(parsed._replace(netloc=netloc))
-
-
 def _runtime_database_url(database_url: typing.Optional[str]) -> typing.Optional[str]:
     if not database_url:
         return None
     if _is_supabase_pooler_host(database_url):
-        return _replace_database_port(database_url, 6543)
-    return database_url
+        return normalize_postgresql_url(database_url, port=6543)
+    return normalize_postgresql_url(database_url)
 
 
 def _parse_email_list(raw_value: typing.Optional[str]) -> tuple[str, ...]:
@@ -126,6 +107,8 @@ def get_settings() -> Settings:
         raise RuntimeError("DATABASE_URL or RUNTIME_DATABASE_URL is required.")
     if not migration_database_url:
         migration_database_url = runtime_database_url
+    else:
+        migration_database_url = normalize_postgresql_url(migration_database_url)
 
     supabase_url = (
         _read_env("SUPABASE_URL")
@@ -159,7 +142,7 @@ def get_settings() -> Settings:
             "GEMINI_MODEL", "gemini-2.0-flash") or "gemini-2.0-flash",
         gemini_analysis_model=(
             _read_env("GEMINI_ANALYSIS_MODEL", _read_env(
-                "GEMINI_MODEL", "gemini-2.0-flash"))
+        "GEMINI_MODEL", "gemini-2.0-flash"))
             or "gemini-2.0-flash"
         ),
         gemini_sentiment_model=(

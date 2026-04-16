@@ -9,6 +9,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import NullPool, StaticPool
 
 from backend.app.config import get_settings
+from backend.app.database_url import normalize_postgresql_url
 
 
 class Base(DeclarativeBase):
@@ -22,6 +23,7 @@ def build_engine(
     pool_size: int = 1,
     max_overflow: int = 0,
 ):
+    database_url = normalize_postgresql_url(database_url)
     kwargs: dict[str, object] = {"future": True}
     if database_url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}

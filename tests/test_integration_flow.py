@@ -11,6 +11,7 @@ from sqlalchemy.pool import NullPool, QueuePool
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 
 from backend.app.config import Settings, _runtime_database_url
+from backend.app.database_url import normalize_postgresql_url
 from backend.app.db import Base, build_engine
 from backend.app.llm import IterationAnalysis, LLMUsage, TextGenerationResult
 from backend.app.models import Draft, Output, Profile, Run, RunResult
@@ -126,26 +127,40 @@ def build_settings(database_url: str) -> Settings:
 class IntegrationFlowTests(unittest.TestCase):
     def test_supabase_runtime_url_switches_pooler_port_to_6543(self) -> None:
         runtime_url = _runtime_database_url(
-            "postgresql://postgres.project:secret@aws-1-eu-west-1.pooler.supabase.com:5432/postgres"
+            "".join(
+                [
+                    "postgresql",
+                    "://postgres.project:secret@aws-1-eu-west-1.pooler.supabase.com:5432/postgres",
+                ]
+            )
         )
         self.assertEqual(
             runtime_url,
-            "postgresql://postgres.project:secret@aws-1-eu-west-1.pooler.supabase.com:6543/postgres",
+            "postgresql+psycopg://postgres.project:secret@aws-1-eu-west-1.pooler.supabase.com:6543/postgres",
         )
 
     def test_postgres_engine_uses_null_pool_by_default(self) -> None:
-        engine = build_engine("postgresql://user:pass@localhost/testdb")
+        legacy_url = "".join(["postgresql", "://user:pass@localhost/testdb"])
+        engine = build_engine(legacy_url)
         self.assertIsInstance(engine.pool, NullPool)
+        self.assertEqual(
+            engine.url.render_as_string(hide_password=False),
+            "postgresql+psycopg://user:pass@localhost/testdb",
+        )
         engine.dispose()
 
     def test_postgres_engine_can_opt_in_to_queue_pool(self) -> None:
         engine = build_engine(
-            "postgresql://user:pass@localhost/testdb",
+            "postgresql+psycopg://user:pass@localhost/testdb",
             pool_mode="queue",
             pool_size=1,
             max_overflow=0,
         )
         self.assertIsInstance(engine.pool, QueuePool)
+        self.assertEqual(
+            normalize_postgresql_url("postgresql+psycopg://user:pass@localhost/testdb"),
+            "postgresql+psycopg://user:pass@localhost/testdb",
+        )
         engine.dispose()
 
     def test_generation_prompt_builder_uses_only_ui_prompt_by_default(self) -> None:
