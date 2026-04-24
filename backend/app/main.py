@@ -108,21 +108,16 @@ def startup() -> None:
 
 @app.get("//auth/confirm", include_in_schema=False)
 @app.get("/auth/confirm", include_in_schema=False)
-def confirm_supabase_auth_link(
-    token_hash: str | None = None,
-    type: str | None = None,
-    error: str | None = None,
-    error_code: str | None = None,
-    error_description: str | None = None,
-) -> RedirectResponse:
+def confirm_supabase_auth_link(request: Request) -> RedirectResponse:
+    query_params = request.query_params
     params = {
         key: value
         for key, value in {
-            "token_hash": token_hash,
-            "type": type,
-            "error": error,
-            "error_code": error_code,
-            "error_description": error_description,
+            "token_hash": query_params.get("token_hash"),
+            "type": query_params.get("type"),
+            "error": query_params.get("error"),
+            "error_code": query_params.get("error_code"),
+            "error_description": query_params.get("error_description"),
         }.items()
         if value
     }
