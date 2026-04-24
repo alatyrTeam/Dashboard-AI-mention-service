@@ -238,11 +238,9 @@ type AuthForm = {
   password: string;
 };
 
-type SpecialAuthRoute = "reset-password" | "reset-email";
+type SpecialAuthRoute = "reset-password";
 
 type ResetPasswordStatus = "idle" | "loading" | "ready" | "success" | "error";
-
-type ResetEmailStatus = "idle" | "loading" | "success" | "pending" | "error";
 
 type AuthRedirectSnapshot = {
   type: string | null;
@@ -269,15 +267,10 @@ const emptyDraft: DraftForm = {
 
 const ADD_PROJECT_OPTION_VALUE = "__add_project__";
 const AUTH_REDIRECT_ORIGIN = "https://dashboard.rankberry.marketing";
-const AUTH_ROUTE_PARAM = "auth_route";
 const PASSWORD_RESET_ROUTE = "reset-password";
-const EMAIL_CHANGE_ROUTE = "reset-email";
-const PASSWORD_RESET_REDIRECT_URL = `${AUTH_REDIRECT_ORIGIN}/?${AUTH_ROUTE_PARAM}=${PASSWORD_RESET_ROUTE}`;
-const EMAIL_CHANGE_REDIRECT_URL = `${AUTH_REDIRECT_ORIGIN}/?${AUTH_ROUTE_PARAM}=${EMAIL_CHANGE_ROUTE}`;
+const PASSWORD_RESET_REDIRECT_URL = `${AUTH_REDIRECT_ORIGIN}/`;
 const PASSWORD_RESET_PATH = `/${PASSWORD_RESET_ROUTE}`;
-const EMAIL_CHANGE_PATH = `/${EMAIL_CHANGE_ROUTE}`;
 const PASSWORD_RESET_FLOW_KEY = "rankberry-dashboard-password-reset-flow";
-const EMAIL_CHANGE_FLOW_KEY = "rankberry-dashboard-email-change-flow";
 const AUTH_FLASH_KEY = "rankberry-dashboard-auth-flash";
 const AUTH_URL_PARAM_KEYS = [
   "access_token",
@@ -288,7 +281,6 @@ const AUTH_URL_PARAM_KEYS = [
   "type",
   "token_hash",
   "code",
-  AUTH_ROUTE_PARAM,
   "error",
   "error_code",
   "error_description",
@@ -309,9 +301,6 @@ function getSpecialAuthRouteFromPath(pathname: string | null): SpecialAuthRoute 
   const normalizedPathname = normalizePathname(pathname);
   if (normalizedPathname === PASSWORD_RESET_PATH) {
     return "reset-password";
-  }
-  if (normalizedPathname === EMAIL_CHANGE_PATH) {
-    return "reset-email";
   }
   return null;
 }
@@ -378,16 +367,6 @@ function readAuthRedirectParams(url: URL) {
   return params;
 }
 
-function getSpecialAuthRouteFromParam(value: string | null): SpecialAuthRoute | null {
-  if (value === PASSWORD_RESET_ROUTE) {
-    return "reset-password";
-  }
-  if (value === EMAIL_CHANGE_ROUTE) {
-    return "reset-email";
-  }
-  return null;
-}
-
 function getSpecialAuthRoute(href: string): SpecialAuthRoute | null {
   const url = new URL(href);
   const authParams = readAuthRedirectParams(url);
@@ -395,9 +374,7 @@ function getSpecialAuthRoute(href: string): SpecialAuthRoute | null {
   return (
     getSpecialAuthRouteFromPath(url.pathname)
     || getSpecialAuthRouteFromPath(getHashPathname(url.hash))
-    || getSpecialAuthRouteFromParam(authParams.get(AUTH_ROUTE_PARAM))
     || (authParams.get("type") === "recovery" ? "reset-password" : null)
-    || (authParams.get("type") === "email_change" ? "reset-email" : null)
   );
 }
 
@@ -534,17 +511,6 @@ function getFriendlyPasswordResetLinkError(details?: string | null) {
     return "This password reset link has already been used. Request a new reset email if you still need to change your password.";
   }
   return "This password reset link is invalid or no longer available. Request a new reset email and try again.";
-}
-
-function getFriendlyEmailChangeLinkError(details?: string | null) {
-  const message = String(details || "").toLowerCase();
-  if (message.includes("expired")) {
-    return "This email confirmation link has expired. Start the email change again and use the newest email.";
-  }
-  if (message.includes("already") || message.includes("used")) {
-    return "This email confirmation link has already been used. If your email still has not changed, start the request again.";
-  }
-  return "This email confirmation link is invalid or no longer available. Start the email change again and use the newest email.";
 }
 
 function getFriendlyPasswordUpdateError(error: unknown) {
@@ -1653,8 +1619,6 @@ export default function App() {
   const [resetPasswordMessage, setResetPasswordMessage] = useState("");
   const [resetPasswordForm, setResetPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
-  const [resetEmailStatus, setResetEmailStatus] = useState<ResetEmailStatus>(specialAuthRoute === "reset-email" ? "loading" : "idle");
-  const [resetEmailMessage, setResetEmailMessage] = useState("");
   const [authRouteUserEmail, setAuthRouteUserEmail] = useState<string | null>(null);
   const [validationWarning, setValidationWarning] = useState("");
   const [projectCreator, setProjectCreator] = useState<{ rowId: string; value: string } | null>(null);
@@ -1800,7 +1764,6 @@ export default function App() {
 
     let cancelled = false;
     let sawPasswordRecovery = authRedirectSnapshot.type === "recovery";
-    let sawEmailChange = authRedirectSnapshot.type === "email_change";
 
     const setResetPasswordError = (message: string) => {
       clearAuthFlowFlag(PASSWORD_RESET_FLOW_KEY);
@@ -1809,15 +1772,8 @@ export default function App() {
       setResetPasswordMessage(message);
     };
 
-    const setResetEmailError = (message: string) => {
-      clearAuthFlowFlag(EMAIL_CHANGE_FLOW_KEY);
-      if (cancelled) return;
-      setResetEmailStatus("error");
-      setResetEmailMessage(message);
-    };
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (specialAuthRoute === "reset-password" && event === "PASSWORD_RECOVERY") {
+      if (event === "PASSWORD_RECOVERY") {
         sawPasswordRecovery = true;
         setAuthFlowFlag(PASSWORD_RESET_FLOW_KEY);
         if (cancelled) return;
@@ -1825,105 +1781,57 @@ export default function App() {
         setResetPasswordStatus("ready");
         setResetPasswordMessage("");
       }
-
-      if (specialAuthRoute === "reset-email" && (event === "SIGNED_IN" || event === "USER_UPDATED")) {
-        sawEmailChange = true;
-        setAuthFlowFlag(EMAIL_CHANGE_FLOW_KEY);
-        if (cancelled) return;
-        setAuthRouteUserEmail(session?.user.email ?? null);
-      }
     });
 
     const initializeSpecialAuthRoute = async () => {
       if (!hasSupabaseConfig) {
-        if (specialAuthRoute === "reset-password") {
-          setResetPasswordError("Supabase Auth is not configured for this app.");
-        } else {
-          setResetEmailError("Supabase Auth is not configured for this app.");
-        }
+        setResetPasswordError("Supabase Auth is not configured for this app.");
         return;
       }
 
       if (authRedirectSnapshot.errorCode || authRedirectSnapshot.errorDescription) {
         scrubAuthRedirectUrl();
-        if (specialAuthRoute === "reset-password") {
-          setResetPasswordError(getFriendlyPasswordResetLinkError(authRedirectSnapshot.errorDescription || authRedirectSnapshot.errorCode));
-        } else {
-          setResetEmailError(getFriendlyEmailChangeLinkError(authRedirectSnapshot.errorDescription || authRedirectSnapshot.errorCode));
-        }
+        setResetPasswordError(getFriendlyPasswordResetLinkError(authRedirectSnapshot.errorDescription || authRedirectSnapshot.errorCode));
         return;
       }
 
       if (authRedirectSnapshot.tokenHash) {
-        if (specialAuthRoute === "reset-password") {
-          if (authRedirectSnapshot.type !== "recovery") {
-            scrubAuthRedirectUrl();
-            setResetPasswordError("This password reset link is not valid for this page.");
-            return;
-          }
-
-          const { data, error } = await supabase.auth.verifyOtp({
-            token_hash: authRedirectSnapshot.tokenHash,
-            type: "recovery",
-          });
+        if (authRedirectSnapshot.type !== "recovery") {
           scrubAuthRedirectUrl();
-          if (error || !data.session) {
-            setResetPasswordError(getFriendlyPasswordResetLinkError(error?.message));
-            return;
-          }
-
-          sawPasswordRecovery = true;
-          setAuthFlowFlag(PASSWORD_RESET_FLOW_KEY);
-          if (cancelled) return;
-          setAuthRouteUserEmail(data.user?.email ?? null);
-        } else {
-          if (authRedirectSnapshot.type !== "email_change") {
-            scrubAuthRedirectUrl();
-            setResetEmailError("This email confirmation link is not valid for this page.");
-            return;
-          }
-
-          const { data, error } = await supabase.auth.verifyOtp({
-            token_hash: authRedirectSnapshot.tokenHash,
-            type: "email_change",
-          });
-          scrubAuthRedirectUrl();
-          if (error) {
-            setResetEmailError(getFriendlyEmailChangeLinkError(error.message));
-            return;
-          }
-
-          sawEmailChange = true;
-          setAuthFlowFlag(EMAIL_CHANGE_FLOW_KEY);
-          if (cancelled) return;
-          setAuthRouteUserEmail(data.user?.email ?? null);
+          setResetPasswordError("This password reset link is not valid for this page.");
+          return;
         }
+
+        const { data, error } = await supabase.auth.verifyOtp({
+          token_hash: authRedirectSnapshot.tokenHash,
+          type: "recovery",
+        });
+        scrubAuthRedirectUrl();
+        if (error || !data.session) {
+          setResetPasswordError(getFriendlyPasswordResetLinkError(error?.message));
+          return;
+        }
+
+        sawPasswordRecovery = true;
+        setAuthFlowFlag(PASSWORD_RESET_FLOW_KEY);
+        if (cancelled) return;
+        setAuthRouteUserEmail(data.user?.email ?? null);
       }
 
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         scrubAuthRedirectUrl();
-        if (specialAuthRoute === "reset-password") {
-          if (hasAuthRedirectAttempt(authRedirectSnapshot) || sawPasswordRecovery || hasAuthFlowFlag(PASSWORD_RESET_FLOW_KEY)) {
-            setResetPasswordError("This password reset link is invalid or has expired. Request a new reset email and try again.");
-          } else {
-            setResetPasswordError("Open the password reset link from your email to choose a new password.");
-          }
-        } else if (hasAuthRedirectAttempt(authRedirectSnapshot) || sawEmailChange || hasAuthFlowFlag(EMAIL_CHANGE_FLOW_KEY)) {
-          setResetEmailError("This email confirmation link is invalid or has expired. Start the email change again and use the newest email.");
+        if (hasAuthRedirectAttempt(authRedirectSnapshot) || sawPasswordRecovery || hasAuthFlowFlag(PASSWORD_RESET_FLOW_KEY)) {
+          setResetPasswordError("This password reset link is invalid or has expired. Request a new reset email and try again.");
         } else {
-          setResetEmailError("Open the email change confirmation link from your inbox to continue.");
+          setResetPasswordError("Open the password reset link from your email to choose a new password.");
         }
         return;
       }
 
       const { data: { user }, error } = await supabase.auth.getUser();
       if (error || !user) {
-        if (specialAuthRoute === "reset-password") {
-          setResetPasswordError(getFriendlyPasswordResetLinkError(error?.message));
-        } else {
-          setResetEmailError(getFriendlyEmailChangeLinkError(error?.message));
-        }
+        setResetPasswordError(getFriendlyPasswordResetLinkError(error?.message));
         return;
       }
 
@@ -1932,32 +1840,9 @@ export default function App() {
 
       setAuthRouteUserEmail(user.email ?? null);
 
-      if (specialAuthRoute === "reset-password") {
-        setAuthFlowFlag(PASSWORD_RESET_FLOW_KEY);
-        setResetPasswordStatus("ready");
-        setResetPasswordMessage("");
-        return;
-      }
-
-      const hasEmailChangeContext = sawEmailChange || hasAuthFlowFlag(EMAIL_CHANGE_FLOW_KEY) || hasAuthRedirectAttempt(authRedirectSnapshot);
-      if (!hasEmailChangeContext) {
-        setResetEmailError("Open the email change confirmation link from your inbox to continue.");
-        return;
-      }
-
-      setAuthFlowFlag(EMAIL_CHANGE_FLOW_KEY);
-      if (user.new_email) {
-        setResetEmailStatus("pending");
-        setResetEmailMessage(
-          `We confirmed this step, but the email change is still waiting on the other required confirmation link${user.new_email ? ` for ${user.new_email}` : ""}.`,
-        );
-        return;
-      }
-
-      setResetEmailStatus("success");
-      setResetEmailMessage(user.email
-        ? `Your email has been updated to ${user.email}. Redirecting back to the dashboard...`
-        : "Your email has been updated. Redirecting back to the dashboard...");
+      setAuthFlowFlag(PASSWORD_RESET_FLOW_KEY);
+      setResetPasswordStatus("ready");
+      setResetPasswordMessage("");
     };
 
     void initializeSpecialAuthRoute();
@@ -1967,22 +1852,6 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, [authRedirectSnapshot, specialAuthRoute]);
-
-  useEffect(() => {
-    if (specialAuthRoute !== "reset-email" || resetEmailStatus !== "success") {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      clearAuthFlowFlag(EMAIL_CHANGE_FLOW_KEY);
-      writeAuthFlashState({
-        message: "Your email address was updated successfully.",
-      });
-      goToDashboardHome();
-    }, 1400);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [resetEmailStatus, specialAuthRoute]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -3264,42 +3133,6 @@ export default function App() {
               </button>
             </div>
           )}
-        </section>
-      </div>
-    );
-  }
-
-  if (specialAuthRoute === "reset-email") {
-    return (
-      <div className="auth-route-shell">
-        <section className="modal-card auth-route-card">
-          <div className="brand-block auth-route-brand">
-            <div className="brand-badge">RB</div>
-            <div>
-              <p className="eyebrow">Workspace</p>
-              <h1>Rankberry</h1>
-            </div>
-          </div>
-
-          <p className="eyebrow">Email Change</p>
-          <h3>Confirm your email change</h3>
-          <p>We're verifying the secure confirmation link from your email.</p>
-
-          {resetEmailStatus === "loading" ? <p className="status-banner">Checking your confirmation link...</p> : null}
-          {resetEmailStatus === "error" ? <p className="auth-error">{resetEmailMessage}</p> : null}
-          {resetEmailStatus === "success" || resetEmailStatus === "pending" ? <p className="status-banner">{resetEmailMessage}</p> : null}
-          {authRouteUserEmail && resetEmailStatus !== "error" ? <p className="inline-status">Current account email: {authRouteUserEmail}</p> : null}
-
-          <div className="modal-actions auth-route-actions">
-            <button className="ghost-btn" type="button" onClick={goToDashboardHome}>
-              Return to dashboard
-            </button>
-            {resetEmailStatus === "pending" ? (
-              <button className="primary-btn" type="button" onClick={goToDashboardHome}>
-                Continue
-              </button>
-            ) : null}
-          </div>
         </section>
       </div>
     );
