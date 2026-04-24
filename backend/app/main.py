@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import RedirectResponse
 
 from backend.app.audit import record_log
 from backend.app.api.routes import router
@@ -25,6 +27,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+
+
+@app.middleware("http")
+async def normalize_supabase_auth_confirm_path(request: Request, call_next):
+    stripped_path = request.scope.get("path", "").lstrip("/")
+    if stripped_path == "auth/confirm":
+        request.scope["path"] = "/auth/confirm"
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -94,6 +104,30 @@ async def audit_api_requests(request: Request, call_next):
 @app.on_event("startup")
 def startup() -> None:
     run_pending_migrations()
+
+
+@app.get("//auth/confirm", include_in_schema=False)
+@app.get("/auth/confirm", include_in_schema=False)
+def confirm_supabase_auth_link(
+    token_hash: str | None = None,
+    type: str | None = None,
+    error: str | None = None,
+    error_code: str | None = None,
+    error_description: str | None = None,
+) -> RedirectResponse:
+    params = {
+        key: value
+        for key, value in {
+            "token_hash": token_hash,
+            "type": type,
+            "error": error,
+            "error_code": error_code,
+            "error_description": error_description,
+        }.items()
+        if value
+    }
+    target = f"/?{urlencode(params)}" if params else "/"
+    return RedirectResponse(url=target, status_code=303)
 
 
 if DIST_DIR.exists():
