@@ -585,6 +585,35 @@ th {
   justify-items: start;
 }
 
+.auth-route-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-route-card {
+  width: min(100%, 620px);
+}
+
+.auth-route-brand {
+  margin-bottom: 4px;
+}
+
+.auth-route-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-route-actions {
+  justify-content: flex-end;
+}
+
+.auth-helper-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .auth-gate p,
 .auth-gate h3,
 .empty-state p,
