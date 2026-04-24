@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 
 import { apiRequest } from "./api";
-import { hasSupabaseConfig, supabase } from "./supabase";
+import { hasSupabaseConfig, initialAuthRedirectHref, supabase } from "./supabase";
 
 type Page = "overview" | "service" | "outputs" | "history" | "logs";
 
@@ -268,10 +268,14 @@ const emptyDraft: DraftForm = {
 };
 
 const ADD_PROJECT_OPTION_VALUE = "__add_project__";
-const PASSWORD_RESET_REDIRECT_URL = "https://dashboard.rankberry.marketing/reset-password";
-const EMAIL_CHANGE_REDIRECT_URL = "https://dashboard.rankberry.marketing/reset-email";
-const PASSWORD_RESET_PATH = new URL(PASSWORD_RESET_REDIRECT_URL).pathname;
-const EMAIL_CHANGE_PATH = new URL(EMAIL_CHANGE_REDIRECT_URL).pathname;
+const AUTH_REDIRECT_ORIGIN = "https://dashboard.rankberry.marketing";
+const AUTH_ROUTE_PARAM = "auth_route";
+const PASSWORD_RESET_ROUTE = "reset-password";
+const EMAIL_CHANGE_ROUTE = "reset-email";
+const PASSWORD_RESET_REDIRECT_URL = `${AUTH_REDIRECT_ORIGIN}/?${AUTH_ROUTE_PARAM}=${PASSWORD_RESET_ROUTE}`;
+const EMAIL_CHANGE_REDIRECT_URL = `${AUTH_REDIRECT_ORIGIN}/?${AUTH_ROUTE_PARAM}=${EMAIL_CHANGE_ROUTE}`;
+const PASSWORD_RESET_PATH = `/${PASSWORD_RESET_ROUTE}`;
+const EMAIL_CHANGE_PATH = `/${EMAIL_CHANGE_ROUTE}`;
 const PASSWORD_RESET_FLOW_KEY = "rankberry-dashboard-password-reset-flow";
 const EMAIL_CHANGE_FLOW_KEY = "rankberry-dashboard-email-change-flow";
 const AUTH_FLASH_KEY = "rankberry-dashboard-auth-flash";
@@ -284,6 +288,7 @@ const AUTH_URL_PARAM_KEYS = [
   "type",
   "token_hash",
   "code",
+  AUTH_ROUTE_PARAM,
   "error",
   "error_code",
   "error_description",
@@ -296,7 +301,11 @@ function normalizePathname(pathname: string) {
   return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
 }
 
-function getSpecialAuthRoute(pathname: string): SpecialAuthRoute | null {
+function getSpecialAuthRouteFromPath(pathname: string | null): SpecialAuthRoute | null {
+  if (!pathname) {
+    return null;
+  }
+
   const normalizedPathname = normalizePathname(pathname);
   if (normalizedPathname === PASSWORD_RESET_PATH) {
     return "reset-password";
@@ -307,12 +316,94 @@ function getSpecialAuthRoute(pathname: string): SpecialAuthRoute | null {
   return null;
 }
 
+function mergeSearchParams(target: URLSearchParams, source: URLSearchParams) {
+  source.forEach((value, key) => {
+    target.set(key, value);
+  });
+}
+
+function getHashPathname(hash: string) {
+  if (!hash.startsWith("#")) {
+    return null;
+  }
+
+  const fragment = hash.slice(1);
+  if (!fragment.startsWith("/")) {
+    return null;
+  }
+
+  const stopIndexes = ["?", "#", "&"]
+    .map((marker) => fragment.indexOf(marker))
+    .filter((index) => index > -1);
+  const stopIndex = stopIndexes.length ? Math.min(...stopIndexes) : fragment.length;
+  return fragment.slice(0, stopIndex);
+}
+
+function getHashSearchParams(hash: string) {
+  const params = new URLSearchParams();
+  if (!hash.startsWith("#")) {
+    return params;
+  }
+
+  const fragment = hash.slice(1);
+  const candidates: string[] = [];
+  if (!fragment.startsWith("/") && fragment.includes("=")) {
+    candidates.push(fragment);
+  }
+
+  const nestedHashIndex = fragment.indexOf("#");
+  if (nestedHashIndex > -1) {
+    candidates.push(fragment.slice(nestedHashIndex + 1));
+  }
+
+  const queryIndex = fragment.indexOf("?");
+  if (queryIndex > -1) {
+    candidates.push(fragment.slice(queryIndex + 1));
+  }
+
+  const hashRouteParamIndex = fragment.indexOf("&");
+  if (fragment.startsWith("/") && hashRouteParamIndex > -1) {
+    candidates.push(fragment.slice(hashRouteParamIndex + 1));
+  }
+
+  candidates.forEach((candidate) => {
+    mergeSearchParams(params, new URLSearchParams(candidate));
+  });
+  return params;
+}
+
+function readAuthRedirectParams(url: URL) {
+  const params = getHashSearchParams(url.hash);
+  mergeSearchParams(params, url.searchParams);
+  return params;
+}
+
+function getSpecialAuthRouteFromParam(value: string | null): SpecialAuthRoute | null {
+  if (value === PASSWORD_RESET_ROUTE) {
+    return "reset-password";
+  }
+  if (value === EMAIL_CHANGE_ROUTE) {
+    return "reset-email";
+  }
+  return null;
+}
+
+function getSpecialAuthRoute(href: string): SpecialAuthRoute | null {
+  const url = new URL(href);
+  const authParams = readAuthRedirectParams(url);
+
+  return (
+    getSpecialAuthRouteFromPath(url.pathname)
+    || getSpecialAuthRouteFromPath(getHashPathname(url.hash))
+    || getSpecialAuthRouteFromParam(authParams.get(AUTH_ROUTE_PARAM))
+    || (authParams.get("type") === "recovery" ? "reset-password" : null)
+    || (authParams.get("type") === "email_change" ? "reset-email" : null)
+  );
+}
+
 function readAuthRedirectSnapshot(href: string): AuthRedirectSnapshot {
   const url = new URL(href);
-  const params = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : "");
-  url.searchParams.forEach((value, key) => {
-    params.set(key, value);
-  });
+  const params = readAuthRedirectParams(url);
 
   return {
     type: params.get("type"),
@@ -1493,7 +1584,7 @@ export default function App() {
     if (typeof window === "undefined") {
       return null;
     }
-    return getSpecialAuthRoute(window.location.pathname);
+    return getSpecialAuthRoute(initialAuthRedirectHref || window.location.href);
   }, []);
   const authRedirectSnapshot = useMemo<AuthRedirectSnapshot>(() => {
     if (typeof window === "undefined") {
@@ -1507,7 +1598,7 @@ export default function App() {
         hasCode: false,
       };
     }
-    return readAuthRedirectSnapshot(window.location.href);
+    return readAuthRedirectSnapshot(initialAuthRedirectHref || window.location.href);
   }, []);
   const [page, setPage] = useState<Page>("overview");
   const [authMode, setAuthMode] = useState<AuthMode>("sign_in");
