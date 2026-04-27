@@ -1629,7 +1629,9 @@ export default function App() {
   const csvFileInputRef = useRef<HTMLInputElement | null>(null);
   const lastSavedDraftRef = useRef(JSON.stringify([emptyDraft]));
   const serviceRowsDirtyRef = useRef(false);
+  const serviceRowsRef = useRef(serviceRows);
   const serviceRowsRevisionRef = useRef(0);
+  const lastSavedServiceRowsRevisionRef = useRef(0);
 
   const currentUsername = profile?.username ?? null;
   const currentUserEmail = (profile?.email ?? authForm.email.trim()) || null;
@@ -1655,6 +1657,30 @@ export default function App() {
   const selectedOverviewUserLabel = overviewSummary?.selected_user_id
     ? overviewUserOptions.find((item) => item.user_id === overviewSummary.selected_user_id)?.username || "Selected user"
     : "All users";
+
+  function replaceServiceRows(rows: ServiceRow[], options: { bumpRevision?: boolean; markSaved?: boolean } = {}) {
+    if (options.bumpRevision) {
+      serviceRowsRevisionRef.current += 1;
+    }
+    if (options.markSaved) {
+      lastSavedServiceRowsRevisionRef.current = serviceRowsRevisionRef.current;
+      serviceRowsDirtyRef.current = false;
+    }
+    serviceRowsRef.current = rows;
+    setServiceRows(rows);
+  }
+
+  function updateServiceRows(updater: (current: ServiceRow[]) => ServiceRow[]) {
+    setServiceRows((current) => {
+      const nextRows = updater(serviceRowsRef.current.length ? serviceRowsRef.current : current);
+      serviceRowsRef.current = nextRows;
+      return nextRows;
+    });
+  }
+
+  useEffect(() => {
+    serviceRowsRef.current = serviceRows;
+  }, [serviceRows]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1692,7 +1718,7 @@ export default function App() {
           return;
         }
         setProfile(null);
-        setServiceRows([createServiceRow()]);
+        replaceServiceRows([createServiceRow()], { bumpRevision: true, markSaved: true });
         setDraftReady(false);
         setDraftStatus("Autosave ready");
         lastSavedDraftRef.current = JSON.stringify([emptyDraft]);
@@ -1900,6 +1926,7 @@ export default function App() {
     const draftRows = normalizeDraftRows(serviceRows);
     const primaryDraft = draftRows[0] || toDraftForm(emptyDraft);
     const serializedDraft = JSON.stringify(draftRows);
+    const saveRevision = serviceRowsRevisionRef.current;
     if (serializedDraft === lastSavedDraftRef.current) return;
 
     const timeoutId = window.setTimeout(async () => {
@@ -1912,8 +1939,11 @@ export default function App() {
             rows: draftRows,
           },
         });
-        lastSavedDraftRef.current = serializedDraft;
-        serviceRowsDirtyRef.current = false;
+        if (serviceRowsRevisionRef.current === saveRevision) {
+          lastSavedDraftRef.current = serializedDraft;
+          lastSavedServiceRowsRevisionRef.current = saveRevision;
+          serviceRowsDirtyRef.current = false;
+        }
         preserveServiceInputViewport();
         setDraftStatus("Draft saved");
       } catch (error) {
@@ -2011,7 +2041,7 @@ export default function App() {
     setIsAuthOpen(false);
 
     if (profileResponse.is_admin) {
-      setServiceRows([createServiceRow()]);
+      replaceServiceRows([createServiceRow()], { bumpRevision: true, markSaved: true });
       setDraftReady(false);
       setDraftStatus("Admin account");
       lastSavedDraftRef.current = JSON.stringify([emptyDraft]);
@@ -2036,6 +2066,7 @@ export default function App() {
     if (!token) return;
 
     const loadStartedAtRevision = serviceRowsRevisionRef.current;
+    const loadStartedAtSavedRevision = lastSavedServiceRowsRevisionRef.current;
     setIsLoadingDraft(true);
     try {
       const response = await apiRequest<DraftResponse>("/api/drafts/current", { token });
@@ -2046,8 +2077,13 @@ export default function App() {
         prompt: response.prompt || "",
         project: response.project || "",
       }]);
-      if (!serviceRowsDirtyRef.current && serviceRowsRevisionRef.current === loadStartedAtRevision) {
-        setServiceRows(restoredRows.map((row) => createServiceRow(row)));
+      if (
+        !serviceRowsDirtyRef.current
+        && serviceRowsRevisionRef.current === loadStartedAtRevision
+        && lastSavedServiceRowsRevisionRef.current === loadStartedAtSavedRevision
+        && lastSavedServiceRowsRevisionRef.current === loadStartedAtRevision
+      ) {
+        replaceServiceRows(restoredRows.map((row) => createServiceRow(row)), { markSaved: true });
         lastSavedDraftRef.current = JSON.stringify(restoredRows);
         serviceRowsDirtyRef.current = false;
         setDraftStatus("Draft restored");
@@ -2376,7 +2412,7 @@ export default function App() {
     setAuthForm({ username: "", email: "", password: "" });
     setAuthError("");
     setAuthMessage("");
-    setServiceRows([createServiceRow()]);
+    replaceServiceRows([createServiceRow()], { bumpRevision: true, markSaved: true });
     setDraftReady(false);
     setDraftStatus("Autosave ready");
     lastSavedDraftRef.current = JSON.stringify([emptyDraft]);
@@ -2409,19 +2445,19 @@ export default function App() {
   function updateServiceRow(rowId: string, field: keyof DraftForm, value: string) {
     serviceRowsDirtyRef.current = true;
     serviceRowsRevisionRef.current += 1;
-    setServiceRows((current) => current.map((row) => (row.id === rowId ? { ...row, [field]: value } : row)));
+    updateServiceRows((current) => current.map((row) => (row.id === rowId ? { ...row, [field]: value } : row)));
   }
 
   function addServiceRow() {
     serviceRowsDirtyRef.current = true;
     serviceRowsRevisionRef.current += 1;
-    setServiceRows((current) => [...current, createServiceRow()]);
+    updateServiceRows((current) => [...current, createServiceRow()]);
   }
 
   function duplicateServiceRow() {
     serviceRowsDirtyRef.current = true;
     serviceRowsRevisionRef.current += 1;
-    setServiceRows((current) => {
+    updateServiceRows((current) => {
       const source = current[current.length - 1] || createServiceRow();
       return [...current, createServiceRow(toDraftForm(source))];
     });
@@ -2430,7 +2466,7 @@ export default function App() {
   function deleteServiceRow(rowId: string) {
     serviceRowsDirtyRef.current = true;
     serviceRowsRevisionRef.current += 1;
-    setServiceRows((current) => {
+    updateServiceRows((current) => {
       if (current.length === 1) {
         return [createServiceRow()];
       }
@@ -2652,7 +2688,7 @@ export default function App() {
       const importedRows = parseServiceRowsCsv(await file.text());
       serviceRowsDirtyRef.current = true;
       serviceRowsRevisionRef.current += 1;
-      setServiceRows((current) => [
+      updateServiceRows((current) => [
         ...current,
         ...importedRows.map((row) => createServiceRow(row)),
       ]);
