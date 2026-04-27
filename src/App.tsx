@@ -2645,9 +2645,12 @@ export default function App() {
     try {
       const importedRows = parseServiceRowsCsv(await file.text());
       serviceRowsDirtyRef.current = true;
-      setServiceRows(importedRows.map((row) => createServiceRow(row)));
+      setServiceRows((current) => [
+        ...current,
+        ...importedRows.map((row) => createServiceRow(row)),
+      ]);
       closeCsvImportModal();
-      setStatusMessage(`${importedRows.length} rows loaded from CSV.`);
+      setStatusMessage(`${importedRows.length} rows appended from CSV.`);
     } catch (error) {
       setCsvImportError(error instanceof Error ? error.message : "Could not import CSV file.");
       setIsImportingCsv(false);
