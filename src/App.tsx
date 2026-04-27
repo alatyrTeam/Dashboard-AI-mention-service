@@ -1629,6 +1629,7 @@ export default function App() {
   const csvFileInputRef = useRef<HTMLInputElement | null>(null);
   const lastSavedDraftRef = useRef(JSON.stringify([emptyDraft]));
   const serviceRowsDirtyRef = useRef(false);
+  const serviceRowsRevisionRef = useRef(0);
 
   const currentUsername = profile?.username ?? null;
   const currentUserEmail = (profile?.email ?? authForm.email.trim()) || null;
@@ -2034,6 +2035,7 @@ export default function App() {
   async function loadDraft(token = sessionToken) {
     if (!token) return;
 
+    const loadStartedAtRevision = serviceRowsRevisionRef.current;
     setIsLoadingDraft(true);
     try {
       const response = await apiRequest<DraftResponse>("/api/drafts/current", { token });
@@ -2044,7 +2046,7 @@ export default function App() {
         prompt: response.prompt || "",
         project: response.project || "",
       }]);
-      if (!serviceRowsDirtyRef.current) {
+      if (!serviceRowsDirtyRef.current && serviceRowsRevisionRef.current === loadStartedAtRevision) {
         setServiceRows(restoredRows.map((row) => createServiceRow(row)));
         lastSavedDraftRef.current = JSON.stringify(restoredRows);
         serviceRowsDirtyRef.current = false;
@@ -2406,16 +2408,19 @@ export default function App() {
 
   function updateServiceRow(rowId: string, field: keyof DraftForm, value: string) {
     serviceRowsDirtyRef.current = true;
+    serviceRowsRevisionRef.current += 1;
     setServiceRows((current) => current.map((row) => (row.id === rowId ? { ...row, [field]: value } : row)));
   }
 
   function addServiceRow() {
     serviceRowsDirtyRef.current = true;
+    serviceRowsRevisionRef.current += 1;
     setServiceRows((current) => [...current, createServiceRow()]);
   }
 
   function duplicateServiceRow() {
     serviceRowsDirtyRef.current = true;
+    serviceRowsRevisionRef.current += 1;
     setServiceRows((current) => {
       const source = current[current.length - 1] || createServiceRow();
       return [...current, createServiceRow(toDraftForm(source))];
@@ -2424,6 +2429,7 @@ export default function App() {
 
   function deleteServiceRow(rowId: string) {
     serviceRowsDirtyRef.current = true;
+    serviceRowsRevisionRef.current += 1;
     setServiceRows((current) => {
       if (current.length === 1) {
         return [createServiceRow()];
@@ -2645,6 +2651,7 @@ export default function App() {
     try {
       const importedRows = parseServiceRowsCsv(await file.text());
       serviceRowsDirtyRef.current = true;
+      serviceRowsRevisionRef.current += 1;
       setServiceRows((current) => [
         ...current,
         ...importedRows.map((row) => createServiceRow(row)),
