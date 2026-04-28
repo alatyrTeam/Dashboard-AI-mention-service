@@ -7,9 +7,6 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
-from backend.app.db import SessionLocal
-from backend.app.models import AppLog
-
 
 def _serialize_details(details: typing.Optional[Mapping[str, Any]]) -> typing.Optional[str]:
     if not details:
@@ -48,26 +45,4 @@ def record_log(
     duration_ms: typing.Optional[int] = None,
     details: typing.Optional[Mapping[str, Any]] = None,
 ) -> None:
-    try:
-        with SessionLocal() as session:
-            session.add(
-                AppLog(
-                    level=level.strip().lower() or "info",
-                    category=category.strip().lower() or "api",
-                    action=action.strip() or "unknown",
-                    message=message.strip() or action.strip() or "Log entry",
-                    actor_user_id=actor_user_id,
-                    actor_email=actor_email.strip().lower() if actor_email else None,
-                    actor_username=actor_username.strip() if actor_username else None,
-                    entity_type=entity_type.strip() if entity_type else None,
-                    entity_id=entity_id.strip() if entity_id else None,
-                    path=path.strip() if path else None,
-                    method=method.strip().upper() if method else None,
-                    status_code=status_code,
-                    duration_ms=duration_ms,
-                    details_json=_serialize_details(details),
-                )
-            )
-            session.commit()
-    except Exception:
-        return
+    return

@@ -1636,7 +1636,7 @@ export default function App() {
   const currentUsername = profile?.username ?? null;
   const currentUserEmail = (profile?.email ?? authForm.email.trim()) || null;
   const isAdmin = Boolean(profile?.is_admin);
-  const canViewLogs = Boolean(profile?.can_view_logs || profile?.is_admin);
+  const canViewLogs = Boolean(profile?.can_view_logs);
   const visibleNavItems = navItems.filter((item) => {
     if (isAdmin && (item.key === "service" || item.key === "outputs")) {
       return false;

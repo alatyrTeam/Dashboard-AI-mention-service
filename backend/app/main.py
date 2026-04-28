@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -9,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import RedirectResponse
 
-from backend.app.audit import record_log
 from backend.app.api.routes import router
 from backend.app.migrations.runner import run_pending_migrations
 
@@ -35,70 +33,6 @@ async def normalize_supabase_auth_confirm_path(request: Request, call_next):
     if stripped_path == "auth/confirm":
         request.scope["path"] = "/auth/confirm"
     return await call_next(request)
-
-
-@app.middleware("http")
-async def audit_api_requests(request: Request, call_next):
-    path = request.url.path
-    if not path.startswith("/api/"):
-        return await call_next(request)
-    if path in {"/api/health", "/api/logs"}:
-        return await call_next(request)
-    if request.headers.get("x-audit-source", "").strip().lower() == "auto":
-        return await call_next(request)
-    if request.method.upper() == "OPTIONS":
-        return await call_next(request)
-
-    started_at = time.perf_counter()
-    try:
-        response = await call_next(request)
-    except Exception as error:
-        duration_ms = max(int((time.perf_counter() - started_at) * 1000), 0)
-        actor = getattr(request.state, "current_user", None)
-        record_log(
-            level="error",
-            category="api",
-            action=f"{request.method.upper()} {path}",
-            message=f"{request.method.upper()} {path} failed",
-            actor_user_id=getattr(actor, "user_id", None),
-            actor_email=getattr(actor, "email", None),
-            path=path,
-            method=request.method.upper(),
-            status_code=500,
-            duration_ms=duration_ms,
-            details={
-                "query": dict(request.query_params),
-                "error": str(error),
-            },
-        )
-        raise
-
-    duration_ms = max(int((time.perf_counter() - started_at) * 1000), 0)
-    actor = getattr(request.state, "current_user", None)
-    status_code = int(response.status_code)
-    level = "info"
-    if status_code >= 500:
-        level = "error"
-    elif status_code >= 400:
-        level = "warning"
-
-    record_log(
-        level=level,
-        category="api",
-        action=f"{request.method.upper()} {path}",
-        message=f"{request.method.upper()} {path} -> {status_code}",
-        actor_user_id=getattr(actor, "user_id", None),
-        actor_email=getattr(actor, "email", None),
-        path=path,
-        method=request.method.upper(),
-        status_code=status_code,
-        duration_ms=duration_ms,
-        details={
-            "query": dict(request.query_params),
-            "source": request.headers.get("x-audit-source", "user").strip().lower() or "user",
-        },
-    )
-    return response
 
 
 @app.on_event("startup")

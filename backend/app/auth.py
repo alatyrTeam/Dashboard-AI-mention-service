@@ -25,13 +25,7 @@ class AuthenticatedUser:
 
 
 def can_view_logs(email: typing.Optional[str]) -> bool:
-    if not email:
-        return False
-
-    settings = get_settings()
-    viewer_emails = set(settings.log_viewer_emails)
-    viewer_emails.add(settings.admin_email)
-    return email.strip().lower() in viewer_emails
+    return False
 
 
 def get_current_user(
