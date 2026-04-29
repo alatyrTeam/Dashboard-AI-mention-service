@@ -567,6 +567,31 @@ function normalizeDraftRows(rows: Array<ServiceRow | DraftForm> | null | undefin
   return normalized.length ? normalized : [toDraftForm(emptyDraft)];
 }
 
+function draftRowsFromResponse(response: DraftResponse): DraftForm[] {
+  return normalizeDraftRows(response.rows && response.rows.length ? response.rows : [{
+    keyword: response.keyword || "",
+    domain: response.domain || "",
+    brand: response.brand || "",
+    prompt: response.prompt || "",
+    project: response.project || "",
+  }]);
+}
+
+function mergePersistedAndLocalDraftRows(persistedRows: DraftForm[], localRows: DraftForm[]) {
+  const persistedHasValues = persistedRows.some(hasAnyRowValue);
+  const localHasValues = localRows.some(hasAnyRowValue);
+
+  if (!persistedHasValues) {
+    return localHasValues ? localRows : persistedRows;
+  }
+
+  if (!localHasValues) {
+    return persistedRows;
+  }
+
+  return [...persistedRows, ...localRows];
+}
+
 function normalizeProjectName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -1671,11 +1696,9 @@ export default function App() {
   }
 
   function updateServiceRows(updater: (current: ServiceRow[]) => ServiceRow[]) {
-    setServiceRows((current) => {
-      const nextRows = updater(serviceRowsRef.current.length ? serviceRowsRef.current : current);
-      serviceRowsRef.current = nextRows;
-      return nextRows;
-    });
+    const nextRows = updater(serviceRowsRef.current.length ? serviceRowsRef.current : serviceRows);
+    serviceRowsRef.current = nextRows;
+    setServiceRows(nextRows);
   }
 
   useEffect(() => {
@@ -2070,13 +2093,7 @@ export default function App() {
     setIsLoadingDraft(true);
     try {
       const response = await apiRequest<DraftResponse>("/api/drafts/current", { token });
-      const restoredRows = normalizeDraftRows(response.rows && response.rows.length ? response.rows : [{
-        keyword: response.keyword || "",
-        domain: response.domain || "",
-        brand: response.brand || "",
-        prompt: response.prompt || "",
-        project: response.project || "",
-      }]);
+      const restoredRows = draftRowsFromResponse(response);
       if (
         !serviceRowsDirtyRef.current
         && serviceRowsRevisionRef.current === loadStartedAtRevision
@@ -2686,12 +2703,38 @@ export default function App() {
 
     try {
       const importedRows = parseServiceRowsCsv(await file.text());
+      let baseDraftRows = normalizeDraftRows(serviceRowsRef.current);
+
+      if (sessionToken && profile && !profile.is_admin && (!draftReady || isLoadingDraft)) {
+        const response = await apiRequest<DraftResponse>("/api/drafts/current", { token: sessionToken });
+        baseDraftRows = mergePersistedAndLocalDraftRows(draftRowsFromResponse(response), baseDraftRows);
+      }
+
+      const nextDraftRows = normalizeDraftRows([...baseDraftRows, ...importedRows]);
+      const serializedDraft = JSON.stringify(nextDraftRows);
       serviceRowsDirtyRef.current = true;
       serviceRowsRevisionRef.current += 1;
-      updateServiceRows((current) => [
-        ...current,
-        ...importedRows.map((row) => createServiceRow(row)),
-      ]);
+      const importRevision = serviceRowsRevisionRef.current;
+      replaceServiceRows(nextDraftRows.map((row) => createServiceRow(row)));
+
+      if (sessionToken && profile && !profile.is_admin) {
+        const primaryDraft = nextDraftRows[0] || toDraftForm(emptyDraft);
+        await apiRequest("/api/drafts/current", {
+          method: "PUT",
+          token: sessionToken,
+          body: {
+            ...primaryDraft,
+            rows: nextDraftRows,
+          },
+        });
+        if (serviceRowsRevisionRef.current === importRevision) {
+          lastSavedDraftRef.current = serializedDraft;
+          lastSavedServiceRowsRevisionRef.current = importRevision;
+          serviceRowsDirtyRef.current = false;
+        }
+        setDraftStatus("Draft saved");
+      }
+
       closeCsvImportModal();
       setStatusMessage(`${importedRows.length} rows appended from CSV.`);
     } catch (error) {
