@@ -24,6 +24,10 @@ class DraftPayload(BaseModel):
     rows: list[DraftRowPayload] = Field(default_factory=list)
 
 
+class DraftAppendPayload(BaseModel):
+    rows: list[DraftRowPayload] = Field(default_factory=list)
+
+
 class RunStartRequest(BaseModel):
     keyword: str
     domain: str

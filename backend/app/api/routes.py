@@ -13,7 +13,7 @@ from backend.app.audit import decode_details_json
 from backend.app.auth import AuthenticatedUser, can_view_logs, get_current_user
 from backend.app.db import SessionLocal, get_db_session
 from backend.app.models import AppLog, Profile
-from backend.app.schemas import BulkRunActionResponse, DraftPayload, ProfileUpsertRequest, RunStartRequest
+from backend.app.schemas import BulkRunActionResponse, DraftAppendPayload, DraftPayload, ProfileUpsertRequest, RunStartRequest
 from backend.app.service_container import get_run_service
 from backend.app.utils import utcnow
 
@@ -131,6 +131,33 @@ def upsert_current_draft(
         brand=payload.brand,
         prompt=payload.prompt,
         project=payload.project,
+        rows=[row.model_dump() for row in payload.rows],
+    )
+    rows = service.parse_draft_rows(draft)
+    return {
+        "id": draft.id,
+        "user_id": draft.user_id,
+        "keyword": draft.keyword,
+        "domain": draft.domain,
+        "brand": draft.brand,
+        "prompt": draft.prompt,
+        "project": draft.project,
+        "rows": rows,
+        "updated_at": draft.updated_at,
+    }
+
+
+@router.post("/drafts/current/append")
+def append_current_draft_rows(
+    payload: DraftAppendPayload,
+    session: Session = Depends(get_db_session),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict[str, object]:
+    _reject_admin_service_access(current_user)
+    service = get_run_service()
+    draft = service.append_current_draft_rows(
+        session,
+        user_id=current_user.user_id,
         rows=[row.model_dump() for row in payload.rows],
     )
     rows = service.parse_draft_rows(draft)

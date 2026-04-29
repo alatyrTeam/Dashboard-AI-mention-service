@@ -123,6 +123,33 @@ class RunService:
         session.refresh(draft)
         return draft
 
+    def append_current_draft_rows(
+        self,
+        session: Session,
+        *,
+        user_id: uuid.UUID,
+        rows: list[dict[str, str]],
+    ) -> Draft:
+        draft = self.get_current_draft(session, user_id=user_id)
+        existing_rows = self.parse_draft_rows(draft)
+        appended_rows = [row for row in self._normalize_draft_rows(rows) if self._draft_row_has_value(row)]
+        if not appended_rows:
+            return draft
+        base_rows = existing_rows if any(self._draft_row_has_value(row) for row in existing_rows) else []
+        combined_rows = base_rows + appended_rows
+        first_row = combined_rows[0]
+
+        return self.upsert_current_draft(
+            session,
+            user_id=user_id,
+            keyword=first_row["keyword"],
+            domain=first_row["domain"],
+            brand=first_row["brand"],
+            prompt=first_row["prompt"],
+            project=first_row["project"],
+            rows=combined_rows,
+        )
+
     def create_run(
         self,
         session: Session,
@@ -855,6 +882,9 @@ class RunService:
                 }
             )
         return normalized or [{"keyword": "", "domain": "", "brand": "", "prompt": "", "project": ""}]
+
+    def _draft_row_has_value(self, row: dict[str, str]) -> bool:
+        return any(str(value or "").strip() for value in row.values())
 
     def _serialize_draft_rows(self, rows: list[dict[str, str]]) -> str:
         return json.dumps(rows)

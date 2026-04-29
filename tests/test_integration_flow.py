@@ -222,6 +222,52 @@ class IntegrationFlowTests(unittest.TestCase):
             self.assertEqual(draft.keyword, "first keyword")
             self.assertEqual(draft.project, "Alpha")
 
+    def test_append_current_draft_rows_keeps_existing_duplicate_rows(self) -> None:
+        database_url = "sqlite+pysqlite:///:memory:"
+        engine = build_engine(database_url)
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+        service = RunService(build_settings(database_url), session_factory, FakeLLMClient())
+
+        user_id = uuid.uuid4()
+        existing_row = {
+            "keyword": "lalalalala",
+            "domain": "good.com",
+            "brand": "goodgoods",
+            "prompt": "give me goods",
+            "project": "good",
+        }
+        imported_row = {
+            "keyword": "csv keyword",
+            "domain": "csv.example",
+            "brand": "CSV Brand",
+            "prompt": "csv prompt",
+            "project": "csv",
+        }
+
+        with session_factory() as session:
+            service.upsert_current_draft(
+                session,
+                user_id=user_id,
+                keyword=existing_row["keyword"],
+                domain=existing_row["domain"],
+                brand=existing_row["brand"],
+                prompt=existing_row["prompt"],
+                project=existing_row["project"],
+                rows=[existing_row, existing_row, existing_row],
+            )
+
+        with session_factory() as session:
+            service.append_current_draft_rows(session, user_id=user_id, rows=[imported_row])
+
+        with session_factory() as session:
+            draft = session.execute(select(Draft).where(Draft.user_id == user_id)).scalar_one()
+            parsed_rows = service.parse_draft_rows(draft)
+
+            self.assertEqual(parsed_rows, [existing_row, existing_row, existing_row, imported_row])
+            self.assertEqual(draft.keyword, existing_row["keyword"])
+            self.assertEqual(draft.project, existing_row["project"])
+
     def test_list_user_project_options_uses_only_current_user_runs(self) -> None:
         database_url = "sqlite+pysqlite:///:memory:"
         engine = build_engine(database_url)

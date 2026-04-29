@@ -577,21 +577,6 @@ function draftRowsFromResponse(response: DraftResponse): DraftForm[] {
   }]);
 }
 
-function mergePersistedAndLocalDraftRows(persistedRows: DraftForm[], localRows: DraftForm[]) {
-  const persistedHasValues = persistedRows.some(hasAnyRowValue);
-  const localHasValues = localRows.some(hasAnyRowValue);
-
-  if (!persistedHasValues) {
-    return localHasValues ? localRows : persistedRows;
-  }
-
-  if (!localHasValues) {
-    return persistedRows;
-  }
-
-  return [...persistedRows, ...localRows];
-}
-
 function normalizeProjectName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -1954,6 +1939,9 @@ export default function App() {
 
     const timeoutId = window.setTimeout(async () => {
       try {
+        if (serviceRowsRevisionRef.current !== saveRevision) {
+          return;
+        }
         await apiRequest("/api/drafts/current", {
           method: "PUT",
           token: sessionToken,
@@ -2703,36 +2691,27 @@ export default function App() {
 
     try {
       const importedRows = parseServiceRowsCsv(await file.text());
-      let baseDraftRows = normalizeDraftRows(serviceRowsRef.current);
-
-      if (sessionToken && profile && !profile.is_admin && (!draftReady || isLoadingDraft)) {
-        const response = await apiRequest<DraftResponse>("/api/drafts/current", { token: sessionToken });
-        baseDraftRows = mergePersistedAndLocalDraftRows(draftRowsFromResponse(response), baseDraftRows);
-      }
-
-      const nextDraftRows = normalizeDraftRows([...baseDraftRows, ...importedRows]);
-      const serializedDraft = JSON.stringify(nextDraftRows);
       serviceRowsDirtyRef.current = true;
       serviceRowsRevisionRef.current += 1;
       const importRevision = serviceRowsRevisionRef.current;
-      replaceServiceRows(nextDraftRows.map((row) => createServiceRow(row)));
 
       if (sessionToken && profile && !profile.is_admin) {
-        const primaryDraft = nextDraftRows[0] || toDraftForm(emptyDraft);
-        await apiRequest("/api/drafts/current", {
-          method: "PUT",
+        const response = await apiRequest<DraftResponse>("/api/drafts/current/append", {
+          method: "POST",
           token: sessionToken,
-          body: {
-            ...primaryDraft,
-            rows: nextDraftRows,
-          },
+          body: { rows: importedRows },
         });
+        const nextDraftRows = draftRowsFromResponse(response);
+        replaceServiceRows(nextDraftRows.map((row) => createServiceRow(row)));
         if (serviceRowsRevisionRef.current === importRevision) {
-          lastSavedDraftRef.current = serializedDraft;
+          lastSavedDraftRef.current = JSON.stringify(nextDraftRows);
           lastSavedServiceRowsRevisionRef.current = importRevision;
           serviceRowsDirtyRef.current = false;
         }
         setDraftStatus("Draft saved");
+      } else {
+        const nextDraftRows = normalizeDraftRows([...normalizeDraftRows(serviceRowsRef.current), ...importedRows]);
+        replaceServiceRows(nextDraftRows.map((row) => createServiceRow(row)));
       }
 
       closeCsvImportModal();
