@@ -51,7 +51,6 @@ The backend uses FastAPI, SQLAlchemy, a DB-backed run queue, and the shared Supa
 - `Dashboard_AI_check_runs`
 - `Dashboard_AI_check_outputs`
 - `Dashboard_AI_check_run_results`
-- `Dashboard_AI_check_logs`
 
 ## Database Pooling
 
@@ -65,11 +64,9 @@ Optional database pool overrides:
 
 ## Logs
 
-The dashboard includes an in-app `Logs` menu instead of the external log monitor.
+Backend, worker, and cleanup logs are written with Python logging to stdout/stderr so systemd can capture them in journald.
 
-It shows API requests, run lifecycle events, worker claims, worker completion/failure events, and cleanup activity directly inside the UI.
-
-To grant access, set the comma-separated `LOG_VIEWER_EMAILS` value in `.env`. The admin email from `ADMIN_EMAIL` is always allowed too.
+Set `LOG_LEVEL=INFO`, `WARNING`, `ERROR`, or `DEBUG` to tune verbosity. The service logs API request outcomes, authentication/config failures, run queue state changes, worker claims, LLM retries/failures, run completion/failure, and cleanup results.
 
 ## Maintenance
 

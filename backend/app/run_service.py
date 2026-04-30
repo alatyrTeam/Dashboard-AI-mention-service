@@ -3,6 +3,7 @@ from __future__ import annotations
 import typing
 
 import json
+import logging
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
@@ -23,6 +24,9 @@ from backend.app.llm import LLMClient, TextGenerationResult
 from backend.app.models import Draft, Output, Profile, Run, RunResult
 from backend.app.prompt_builders import build_generation_request_prompt
 from backend.app.utils import compact_error_message, utcnow
+
+
+logger = logging.getLogger("rankberry.run_service")
 
 
 @dataclass(frozen=True)
@@ -134,10 +138,18 @@ class RunService:
         existing_rows = self.parse_draft_rows(draft)
         appended_rows = [row for row in self._normalize_draft_rows(rows) if self._draft_row_has_value(row)]
         if not appended_rows:
+            logger.info("draft_append_skipped user_id=%s reason=no_filled_rows", user_id)
             return draft
         base_rows = existing_rows if any(self._draft_row_has_value(row) for row in existing_rows) else []
         combined_rows = base_rows + appended_rows
         first_row = combined_rows[0]
+        logger.info(
+            "draft_rows_appended user_id=%s existing_rows=%s appended_rows=%s total_rows=%s",
+            user_id,
+            len(base_rows),
+            len(appended_rows),
+            len(combined_rows),
+        )
 
         return self.upsert_current_draft(
             session,
@@ -194,6 +206,14 @@ class RunService:
         session.add(run)
         session.commit()
         session.refresh(run)
+        logger.info(
+            "run_queued run_id=%s user_id=%s project=%s keyword=%s total_iterations=%s",
+            run.id,
+            run.user_id,
+            run.project or "-",
+            run.keyword,
+            run.total_iterations,
+        )
         return run
 
     def claim_next_run(self) -> typing.Optional[RunSnapshot]:
@@ -220,6 +240,7 @@ class RunService:
             run.finished_at = None
             run.error_messages = None
             session.commit()
+            logger.info("run_marked_running run_id=%s user_id=%s project=%s", run.id, run.user_id, run.project or "-")
             return RunSnapshot(
                 id=run.id,
                 user_id=run.user_id,
@@ -231,6 +252,7 @@ class RunService:
             )
 
     def process_claimed_run(self, run: RunSnapshot) -> str:
+        logger.info("run_processing_started run_id=%s user_id=%s project=%s", run.id, run.user_id, run.project or "-")
         try:
             self._raise_if_run_stopped(run.id)
             for iteration_number in range(1, self.settings.total_iterations + 1):
@@ -240,12 +262,21 @@ class RunService:
             self._finalize_run(run)
             self._raise_if_run_stopped(run.id)
             self._mark_run_completed(run.id)
+            logger.info("run_processing_completed run_id=%s user_id=%s project=%s", run.id, run.user_id, run.project or "-")
             return "completed"
         except StopRequestedError:
             self._mark_run_stopped(run.id)
+            logger.warning("run_processing_stopped run_id=%s user_id=%s project=%s", run.id, run.user_id, run.project or "-")
             return "stopped"
         except Exception as error:
             self._mark_run_failed(run.id, error)
+            logger.exception(
+                "run_processing_failed run_id=%s user_id=%s project=%s error=%s",
+                run.id,
+                run.user_id,
+                run.project or "-",
+                compact_error_message(error),
+            )
             raise
 
     def get_run_detail(
@@ -330,6 +361,7 @@ class RunService:
             stopped_run_ids.append(str(run.id))
 
         session.commit()
+        logger.warning("user_runs_stopped user_id=%s run_count=%s run_ids=%s", user_id, len(stopped_run_ids), ",".join(stopped_run_ids))
         return stopped_run_ids
 
     def resume_user_runs(self, session: Session, *, user_id: uuid.UUID) -> list[str]:
@@ -356,7 +388,9 @@ class RunService:
             run.finished_at = None
 
         session.commit()
-        return [str(run_id) for run_id in run_ids]
+        serialized_run_ids = [str(run_id) for run_id in run_ids]
+        logger.info("user_runs_resumed user_id=%s run_count=%s run_ids=%s", user_id, len(serialized_run_ids), ",".join(serialized_run_ids))
+        return serialized_run_ids
 
     def retry_failed_user_runs(self, session: Session, *, user_id: uuid.UUID) -> list[str]:
         runs = list(
@@ -382,7 +416,14 @@ class RunService:
             run.finished_at = None
 
         session.commit()
-        return [str(run_id) for run_id in run_ids]
+        serialized_run_ids = [str(run_id) for run_id in run_ids]
+        logger.info(
+            "user_failed_runs_requeued user_id=%s run_count=%s run_ids=%s",
+            user_id,
+            len(serialized_run_ids),
+            ",".join(serialized_run_ids),
+        )
+        return serialized_run_ids
 
     def list_history(
         self,
@@ -522,6 +563,7 @@ class RunService:
 
     def _process_iteration(self, run: RunSnapshot, iteration_number: int) -> None:
         prompt = self._build_generation_prompt(run, iteration_number)
+        logger.info("run_iteration_started run_id=%s iteration=%s", run.id, iteration_number)
 
         gpt_output: typing.Optional[str] = None
         gem_output: typing.Optional[str] = None
@@ -537,7 +579,9 @@ class RunService:
             gpt_output = gpt_result.text
             self._raise_if_run_stopped(run.id)
         except Exception as error:
-            generation_errors.append(f"OpenAI: {compact_error_message(error)}")
+            error_message = compact_error_message(error)
+            logger.warning("openai_generation_failed run_id=%s iteration=%s error=%s", run.id, iteration_number, error_message)
+            generation_errors.append(f"OpenAI: {error_message}")
 
         try:
             gem_result = self.llm_client.call_with_retry(
@@ -547,7 +591,9 @@ class RunService:
             gem_output = gem_result.text
             self._raise_if_run_stopped(run.id)
         except Exception as error:
-            generation_errors.append(f"Gemini: {compact_error_message(error)}")
+            error_message = compact_error_message(error)
+            logger.warning("gemini_generation_failed run_id=%s iteration=%s error=%s", run.id, iteration_number, error_message)
+            generation_errors.append(f"Gemini: {error_message}")
 
         gpt_domain_mention, gpt_brand_mention = detect_mentions(gpt_output, run.domain, run.brand)
         gem_domain_mention, gem_brand_mention = detect_mentions(gem_output, run.domain, run.brand)
@@ -577,20 +623,35 @@ class RunService:
 
         self._raise_if_run_stopped(run.id)
         if generation_errors:
+            logger.error(
+                "run_iteration_generation_failed run_id=%s iteration=%s errors=%s",
+                run.id,
+                iteration_number,
+                " | ".join(generation_errors),
+            )
             raise RuntimeError(f"Iteration {iteration_number} generation failed. {' | '.join(generation_errors)}")
 
-        analysis = self.llm_client.call_with_retry(
-            "Gemini iteration analysis",
-            lambda: self.llm_client.analyze_iteration(
-                keyword=run.keyword,
-                domain=run.domain,
-                brand=run.brand,
-                project=run.project,
-                iteration_number=iteration_number,
-                gpt_output=gpt_output or "",
-                gem_output=gem_output or "",
-            ),
-        )
+        try:
+            analysis = self.llm_client.call_with_retry(
+                "Gemini iteration analysis",
+                lambda: self.llm_client.analyze_iteration(
+                    keyword=run.keyword,
+                    domain=run.domain,
+                    brand=run.brand,
+                    project=run.project,
+                    iteration_number=iteration_number,
+                    gpt_output=gpt_output or "",
+                    gem_output=gem_output or "",
+                ),
+            )
+        except Exception as error:
+            logger.exception(
+                "gemini_iteration_analysis_failed run_id=%s iteration=%s error=%s",
+                run.id,
+                iteration_number,
+                compact_error_message(error),
+            )
+            raise
 
         with self.session_factory() as session:
             output_row = session.execute(
@@ -604,9 +665,11 @@ class RunService:
             parent_run = session.execute(select(Run).where(Run.id == run.id)).scalar_one()
             parent_run.completed_iterations = max(parent_run.completed_iterations or 0, iteration_number)
             session.commit()
+        logger.info("run_iteration_completed run_id=%s iteration=%s", run.id, iteration_number)
         self._raise_if_run_stopped(run.id)
 
     def _finalize_run(self, run: RunSnapshot) -> None:
+        logger.info("run_finalize_started run_id=%s", run.id)
         with self.session_factory() as session:
             outputs = list(
                 session.execute(
@@ -615,6 +678,12 @@ class RunService:
             )
 
         if len(outputs) < self.settings.total_iterations:
+            logger.error(
+                "run_finalize_missing_outputs run_id=%s output_count=%s expected=%s",
+                run.id,
+                len(outputs),
+                self.settings.total_iterations,
+            )
             raise RuntimeError("Not all iteration rows are available for aggregation.")
 
         output_views = [
@@ -646,7 +715,13 @@ class RunService:
                     selected_inputs=sentiment_inputs,
                 ),
             )
-        except Exception:
+        except Exception as error:
+            logger.warning(
+                "final_sentiment_primary_failed run_id=%s selected_inputs=%s error=%s",
+                run.id,
+                len(sentiment_inputs),
+                compact_error_message(error),
+            )
             reduced_inputs = drop_one_gpt_for_sentiment_retry(sentiment_inputs)
             sentiment_result = self.llm_client.call_with_retry(
                 "Gemini final sentiment fallback",
@@ -679,6 +754,7 @@ class RunService:
                 sentiment_result.usage.estimated_cost_usd if sentiment_result.usage else None
             )
             session.commit()
+        logger.info("run_finalize_completed run_id=%s sentiment_inputs=%s", run.id, len(sentiment_inputs))
 
     def _mark_run_completed(self, run_id: uuid.UUID) -> None:
         with self.session_factory() as session:

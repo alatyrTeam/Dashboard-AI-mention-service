@@ -3,7 +3,6 @@ type ApiRequestOptions = {
   token?: string | null;
   body?: unknown;
   query?: Record<string, string | number | null | undefined>;
-  auditSource?: "user" | "auto";
 };
 
 const BACKEND_PROXY_TARGET = "http://127.0.0.1:3001";
@@ -38,7 +37,6 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       headers: {
         "Content-Type": "application/json",
         ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-        ...(options.auditSource ? { "X-Audit-Source": options.auditSource } : {}),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });

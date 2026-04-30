@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
 from sqlalchemy import delete, select
 
-from backend.app.audit import record_log
 from backend.app.config import get_settings
 from backend.app.db import SessionLocal
+from backend.app.logging_config import configure_logging
 from backend.app.models import Output, Run
 from backend.app.utils import utcnow
+
+
+logger = logging.getLogger("rankberry.cleanup")
 
 
 def cleanup_old_outputs() -> int:
     settings = get_settings()
     cutoff = utcnow() - timedelta(days=settings.raw_output_retention_days)
+    logger.info("cleanup_old_outputs_started retention_days=%s cutoff=%s", settings.raw_output_retention_days, cutoff.isoformat())
 
     with SessionLocal() as session:
         finished_run_ids = select(Run.id).where(Run.finished_at.is_not(None), Run.finished_at < cutoff)
@@ -21,21 +26,12 @@ def cleanup_old_outputs() -> int:
             delete(Output).where(Output.run_id.in_(finished_run_ids), Output.created_at < cutoff)
         )
         session.commit()
-        return int(result.rowcount or 0)
+        deleted = int(result.rowcount or 0)
+        logger.info("cleanup_old_outputs_finished deleted_rows=%s", deleted)
+        return deleted
 
 
 if __name__ == "__main__":
+    configure_logging()
     deleted = cleanup_old_outputs()
-    print(f"Deleted {deleted} old raw output rows.")
-    if deleted:
-        settings = get_settings()
-        record_log(
-            category="cleanup",
-            action="old_outputs.deleted",
-            message=f"Deleted {deleted} old raw output rows.",
-            entity_type="output",
-            details={
-                "deleted_rows": deleted,
-                "retention_days": settings.raw_output_retention_days,
-            },
-        )
+    logger.info("cleanup_command_finished deleted_rows=%s", deleted)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -9,12 +11,15 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import RedirectResponse
 
 from backend.app.api.routes import router
+from backend.app.logging_config import configure_logging
 from backend.app.migrations.runner import run_pending_migrations
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DIST_DIR = PROJECT_ROOT / "dist"
 
+configure_logging()
+logger = logging.getLogger("rankberry.backend")
 
 app = FastAPI(title="Rankberry Dashboard API")
 app.add_middleware(
@@ -35,9 +40,52 @@ async def normalize_supabase_auth_confirm_path(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def log_api_requests(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api"):
+        return await call_next(request)
+
+    started_at = time.perf_counter()
+    client_host = request.client.host if request.client else "-"
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.exception(
+            "api_request_failed method=%s path=%s duration_ms=%s client=%s",
+            request.method,
+            path,
+            duration_ms,
+            client_host,
+        )
+        raise
+
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    current_user = getattr(request.state, "current_user", None)
+    user_id = getattr(current_user, "user_id", None)
+    log_method = logger.info
+    if response.status_code >= 500:
+        log_method = logger.error
+    elif response.status_code >= 400:
+        log_method = logger.warning
+    log_method(
+        "api_request method=%s path=%s status_code=%s duration_ms=%s user_id=%s client=%s",
+        request.method,
+        path,
+        response.status_code,
+        duration_ms,
+        user_id or "-",
+        client_host,
+    )
+    return response
+
+
 @app.on_event("startup")
 def startup() -> None:
+    logger.info("backend_startup migrations=starting")
     run_pending_migrations()
+    logger.info("backend_startup migrations=complete")
 
 
 @app.get("//auth/confirm", include_in_schema=False)

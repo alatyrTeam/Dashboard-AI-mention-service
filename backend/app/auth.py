@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import typing
 
+import logging
 import time
 import uuid
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from backend.app.config import get_settings
 
 TOKEN_CACHE_TTL_SECONDS = 60
 _TOKEN_CACHE: dict[str, tuple[float, "AuthenticatedUser"]] = {}
+logger = logging.getLogger("rankberry.auth")
 
 
 @dataclass(frozen=True)
@@ -22,10 +24,6 @@ class AuthenticatedUser:
     access_token: str
     email: str
     is_admin: bool
-
-
-def can_view_logs(email: typing.Optional[str]) -> bool:
-    return False
 
 
 def get_current_user(
@@ -42,10 +40,16 @@ def get_current_user(
     now = time.time()
     cached = _TOKEN_CACHE.get(access_token)
     if cached and cached[0] > now:
+        request.state.current_user = cached[1]
         return cached[1]
 
     settings = get_settings()
     if not settings.supabase_url or not settings.supabase_anon_key:
+        logger.error(
+            "auth_config_incomplete supabase_url_configured=%s anon_key_configured=%s",
+            bool(settings.supabase_url),
+            bool(settings.supabase_anon_key),
+        )
         raise HTTPException(
             status_code=500,
             detail="Supabase auth configuration is incomplete. Set SUPABASE_URL and SUPABASE_ANON_KEY.",
@@ -61,9 +65,11 @@ def get_current_user(
                 },
             )
     except httpx.HTTPError as error:
+        logger.warning("supabase_auth_request_failed error=%s", error)
         raise HTTPException(status_code=502, detail=f"Supabase auth request failed: {error}") from error
 
     if response.status_code != 200:
+        logger.warning("supabase_session_rejected status_code=%s", response.status_code)
         raise HTTPException(status_code=401, detail="Invalid or expired Supabase session.")
 
     payload = response.json()
@@ -76,6 +82,7 @@ def get_current_user(
             is_admin=email == settings.admin_email,
         )
     except (KeyError, ValueError) as error:
+        logger.warning("supabase_user_payload_invalid error=%s", error)
         raise HTTPException(status_code=401, detail="Supabase user payload was invalid.") from error
 
     request.state.current_user = user

@@ -110,26 +110,3 @@ class RunResult(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), default=utcnow
     )
-
-
-class AppLog(Base):
-    __tablename__ = "Dashboard_AI_check_logs"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), default=utcnow
-    )
-    level: Mapped[str] = mapped_column(String(16), nullable=False, default="info", server_default="info")
-    category: Mapped[str] = mapped_column(String(32), nullable=False, default="api", server_default="api")
-    action: Mapped[str] = mapped_column(Text, nullable=False)
-    message: Mapped[str] = mapped_column(Text, nullable=False)
-    actor_user_id: Mapped[typing.Optional[uuid.UUID]] = mapped_column(Uuid)
-    actor_email: Mapped[typing.Optional[str]] = mapped_column(Text)
-    actor_username: Mapped[typing.Optional[str]] = mapped_column(Text)
-    entity_type: Mapped[typing.Optional[str]] = mapped_column(Text)
-    entity_id: Mapped[typing.Optional[str]] = mapped_column(Text)
-    path: Mapped[typing.Optional[str]] = mapped_column(Text)
-    method: Mapped[typing.Optional[str]] = mapped_column(String(16))
-    status_code: Mapped[typing.Optional[int]] = mapped_column(Integer)
-    duration_ms: Mapped[typing.Optional[int]] = mapped_column(Integer)
-    details_json: Mapped[typing.Optional[str]] = mapped_column(Text)

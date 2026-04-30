@@ -54,21 +54,6 @@ def _runtime_database_url(database_url: typing.Optional[str]) -> typing.Optional
     return normalize_postgresql_url(database_url)
 
 
-def _parse_email_list(raw_value: typing.Optional[str]) -> tuple[str, ...]:
-    if not raw_value:
-        return ()
-
-    emails: list[str] = []
-    seen: set[str] = set()
-    for value in raw_value.split(","):
-        cleaned = value.strip().lower()
-        if not cleaned or cleaned in seen:
-            continue
-        seen.add(cleaned)
-        emails.append(cleaned)
-    return tuple(emails)
-
-
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -94,7 +79,6 @@ class Settings:
     total_iterations: int
     iteration_analysis_prompt_file: Path
     final_sentiment_prompt_file: Path
-    log_viewer_emails: tuple[str, ...] = ()
 
 
 @lru_cache(maxsize=1)
@@ -121,9 +105,6 @@ def get_settings() -> Settings:
         _read_env("ADMIN_EMAIL", "analytics@rankberry.marketing")
         or "analytics@rankberry.marketing"
     ).strip().lower()
-    log_viewer_emails = _parse_email_list(_read_env("LOG_VIEWER_EMAILS"))
-    if admin_email not in log_viewer_emails:
-        log_viewer_emails = (admin_email, *log_viewer_emails)
 
     return Settings(
         database_url=runtime_database_url,
@@ -132,7 +113,6 @@ def get_settings() -> Settings:
         db_pool_size=max(int(_read_env("DB_POOL_SIZE", "1") or "1"), 1),
         db_max_overflow=max(int(_read_env("DB_MAX_OVERFLOW", "0") or "0"), 0),
         admin_email=admin_email,
-        log_viewer_emails=log_viewer_emails,
         supabase_url=supabase_url,
         supabase_anon_key=supabase_anon_key,
         openai_api_key=_read_env("OPENAI_API_KEY"),

@@ -3,6 +3,7 @@ from __future__ import annotations
 import typing
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 
@@ -11,6 +12,9 @@ import httpx
 from backend.app.config import Settings
 from backend.app.domain import SentimentInput, normalize_citation_format
 from backend.app.utils import coerce_float, extract_json_object, normalize_csv_text, read_text_file
+
+
+logger = logging.getLogger("rankberry.llm")
 
 
 class LLMError(Exception):
@@ -201,21 +205,53 @@ class LLMClient:
         last_error: typing.Optional[Exception] = None
         for attempt in range(1, self.settings.max_llm_retries + 1):
             try:
+                logger.info(
+                    "llm_operation_attempt operation=%s attempt=%s max_attempts=%s",
+                    operation_name,
+                    attempt,
+                    self.settings.max_llm_retries,
+                )
                 return callback()
-            except NonRetryableLLMError:
+            except NonRetryableLLMError as error:
+                logger.error(
+                    "llm_operation_non_retryable operation=%s attempt=%s error=%s",
+                    operation_name,
+                    attempt,
+                    error,
+                )
                 raise
             except RetryableLLMError as error:
                 last_error = error
                 if attempt >= self.settings.max_llm_retries:
                     break
+                logger.warning(
+                    "llm_operation_retrying operation=%s attempt=%s next_delay_seconds=%s error=%s",
+                    operation_name,
+                    attempt,
+                    delay_seconds,
+                    error,
+                )
                 time.sleep(delay_seconds)
                 delay_seconds *= 2
             except httpx.HTTPError as error:
                 last_error = error
                 if attempt >= self.settings.max_llm_retries:
                     break
+                logger.warning(
+                    "llm_operation_http_retrying operation=%s attempt=%s next_delay_seconds=%s error=%s",
+                    operation_name,
+                    attempt,
+                    delay_seconds,
+                    error,
+                )
                 time.sleep(delay_seconds)
                 delay_seconds *= 2
+        logger.error(
+            "llm_operation_exhausted operation=%s attempts=%s last_error=%s",
+            operation_name,
+            self.settings.max_llm_retries,
+            last_error,
+        )
         raise RetryableLLMError(
             f"{operation_name} failed after retries: {last_error}")
 
@@ -263,13 +299,22 @@ class LLMClient:
             raise RetryableLLMError(str(error)) from error
 
         if response.status_code >= 400:
+            logger.warning(
+                "llm_provider_http_error status_code=%s url=%s",
+                response.status_code,
+                self._redact_url(url),
+            )
             self._raise_for_status(response)
 
         try:
             return response.json()
         except json.JSONDecodeError as error:
+            logger.error("llm_provider_invalid_json url=%s body_prefix=%s", self._redact_url(url), response.text[:200])
             raise NonRetryableLLMError(
                 f"Provider returned invalid JSON: {response.text[:500]}") from error
+
+    def _redact_url(self, url: str) -> str:
+        return url.split("?key=", 1)[0] if "?key=" in url else url
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         body_text = response.text[:1000]

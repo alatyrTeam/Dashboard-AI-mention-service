@@ -29,7 +29,6 @@ class WorkerResilienceTests(unittest.TestCase):
         with (
             patch("backend.app.worker.get_settings", return_value=settings),
             patch("backend.app.worker.get_run_service", return_value=service),
-            patch("backend.app.worker.record_log"),
             patch("backend.app.worker.time.sleep", side_effect=[None, StopIteration()]),
         ):
             with self.assertRaises(StopIteration):

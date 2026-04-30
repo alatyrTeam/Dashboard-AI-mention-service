@@ -3,7 +3,7 @@
 import { apiRequest } from "./api";
 import { hasSupabaseConfig, initialAuthRedirectHref, supabase } from "./supabase";
 
-type Page = "overview" | "service" | "outputs" | "history" | "logs";
+type Page = "overview" | "service" | "outputs" | "history";
 
 type DraftForm = {
   keyword: string;
@@ -23,27 +23,7 @@ type Profile = {
   username: string;
   email: string;
   is_admin: boolean;
-  can_view_logs: boolean;
   created_at: string;
-};
-
-type LogRecord = {
-  id: string;
-  created_at: string;
-  level: string;
-  category: string;
-  action: string;
-  message: string;
-  actor_user_id: string | null;
-  actor_email: string | null;
-  actor_username: string | null;
-  entity_type: string | null;
-  entity_id: string | null;
-  path: string | null;
-  method: string | null;
-  status_code: number | null;
-  duration_ms: number | null;
-  details: Record<string, unknown>;
 };
 
 type ResultItem = {
@@ -757,7 +737,6 @@ const navItems: Array<{ key: Page; label: string }> = [
   { key: "service", label: "AI Visibility Input" },
   { key: "outputs", label: "AI Visibility Outputs" },
   { key: "history", label: "History" },
-  { key: "logs", label: "Logs" },
 ];
 
 const queueRows = [
@@ -810,39 +789,6 @@ function statusTone(status: string) {
   if (status === "completed") return "green";
   if (status === "failed") return "red";
   return "amber";
-}
-
-function logTone(level: string) {
-  if (level === "error") return "red";
-  if (level === "warning") return "amber";
-  return "green";
-}
-
-function logStatusTone(statusCode: number | null | undefined) {
-  if (statusCode === null || statusCode === undefined) return "amber";
-  if (statusCode >= 500) return "red";
-  if (statusCode >= 400) return "amber";
-  return "green";
-}
-
-function formatLogActor(item: LogRecord) {
-  return item.actor_email || item.actor_username || "System";
-}
-
-function formatLogAction(item: LogRecord) {
-  return item.category ? `${item.category} | ${item.action}` : item.action;
-}
-
-function formatLogDetails(details: Record<string, unknown> | null | undefined) {
-  if (!details || !Object.keys(details).length) {
-    return "-";
-  }
-
-  try {
-    return JSON.stringify(details);
-  } catch {
-    return "-";
-  }
 }
 
 function truncateText(value: string | null | undefined, limit = 140) {
@@ -1593,9 +1539,6 @@ export default function App() {
   const [activeRunIds, setActiveRunIds] = useState<string[]>([]);
   const [failedRuns, setFailedRuns] = useState<RunRecord[]>([]);
   const [overviewSummary, setOverviewSummary] = useState<OverviewSummary | null>(null);
-  const [logData, setLogData] = useState<PaginatedResponse<LogRecord>>({ items: [], page: 1, page_size: 50, total: 0 });
-  const [logFilters, setLogFilters] = useState({ level: "", query: "", page: 1 });
-  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [overviewProject, setOverviewProject] = useState("");
   const [overviewUserId, setOverviewUserId] = useState("");
   const [chartRangeMonths, setChartRangeMonths] = useState<6 | 12>(12);
@@ -1646,12 +1589,8 @@ export default function App() {
   const currentUsername = profile?.username ?? null;
   const currentUserEmail = (profile?.email ?? authForm.email.trim()) || null;
   const isAdmin = Boolean(profile?.is_admin);
-  const canViewLogs = Boolean(profile?.can_view_logs);
   const visibleNavItems = navItems.filter((item) => {
     if (isAdmin && (item.key === "service" || item.key === "outputs")) {
-      return false;
-    }
-    if (!canViewLogs && item.key === "logs") {
       return false;
     }
     return true;
@@ -1738,8 +1677,6 @@ export default function App() {
         setActiveRunIds([]);
         setFailedRuns([]);
         setOverviewSummary(null);
-        setLogData({ items: [], page: 1, page_size: 50, total: 0 });
-        setLogFilters({ level: "", query: "", page: 1 });
         setOverviewProject("");
         setOverviewUserId("");
         setReportExportDialog(null);
@@ -1913,10 +1850,6 @@ export default function App() {
     if (!profile || !sessionToken) return;
     void loadOverview(sessionToken);
   }, [profile, sessionToken, overviewProject, overviewUserId]);
-  useEffect(() => {
-    if (!profile || !sessionToken || !canViewLogs || page !== "logs") return;
-    void loadLogs(sessionToken);
-  }, [profile, sessionToken, canViewLogs, page, logFilters.level, logFilters.query, logFilters.page]);
 
   useEffect(() => {
     if (!profile || !sessionToken || profile.is_admin) return;
@@ -1971,11 +1904,6 @@ export default function App() {
       setPage("overview");
     }
   }, [page, profile?.is_admin]);
-  useEffect(() => {
-    if (page === "logs" && !canViewLogs) {
-      setPage("overview");
-    }
-  }, [page, canViewLogs]);
 
   useEffect(() => {
     if (!isAdmin && overviewUserId) {
@@ -1990,7 +1918,7 @@ export default function App() {
     const poll = async () => {
       try {
         const detailResults = await Promise.all(
-          activeRunIds.map(async (runId) => apiRequest<RunDetail>(`/api/runs/${runId}`, { token: sessionToken, auditSource: "auto" })),
+          activeRunIds.map(async (runId) => apiRequest<RunDetail>(`/api/runs/${runId}`, { token: sessionToken })),
         );
         if (cancelled) return;
 
@@ -2181,27 +2109,6 @@ export default function App() {
     }
   }
 
-  async function loadLogs(token = sessionToken) {
-    if (!token || !canViewLogs) return;
-
-    setIsLoadingLogs(true);
-    try {
-      const response = await apiRequest<PaginatedResponse<LogRecord>>("/api/logs", {
-        token,
-        query: {
-          level: logFilters.level || undefined,
-          query: logFilters.query || undefined,
-          page: logFilters.page,
-          page_size: logData.page_size,
-        },
-      });
-      setLogData(response);
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Could not load logs.");
-    } finally {
-      setIsLoadingLogs(false);
-    }
-  }
   async function loadActiveRuns(token = sessionToken) {
     if (!token) return;
 
@@ -2429,8 +2336,6 @@ export default function App() {
     setActiveRunIds([]);
     setFailedRuns([]);
     setOverviewSummary(null);
-    setLogData({ items: [], page: 1, page_size: 50, total: 0 });
-    setLogFilters({ level: "", query: "", page: 1 });
     setOverviewProject("");
     setOverviewUserId("");
     setReportExportDialog(null);
@@ -3703,124 +3608,6 @@ export default function App() {
             </section>
           )}
 
-          {page === "logs" && (
-            <section className="page active logs-page">
-              <div className="page-header-card">
-                <div>
-                  <p className="eyebrow">Logs</p>
-                  <h3>Application activity stream</h3>
-                </div>
-                <p>API requests, run changes, worker updates, and cleanup actions are recorded here. Background polling stays out of the feed.</p>
-              </div>
-
-              {!currentUsername ? (
-                <div className="panel auth-gate">
-                  <p className="eyebrow">Logs unavailable</p>
-                  <h3>Login is required to view logs.</h3>
-                  <p>Sign in with a configured viewer email to open this page.</p>
-                  <button className="primary-btn" type="button" onClick={() => openAuthModal("sign_in")}>Sign In</button>
-                </div>
-              ) : !canViewLogs ? (
-                <div className="panel auth-gate">
-                  <p className="eyebrow">Restricted</p>
-                  <h3>Logs access is restricted to configured viewer emails.</h3>
-                  <p>Add this email to `LOG_VIEWER_EMAILS` in the backend config to grant access.</p>
-                  <span className="hero-pill">{currentUserEmail || currentUsername}</span>
-                </div>
-              ) : (
-                <div className="panel history-page-panel logs-page-panel">
-                  <div className="filter-bar history-filter-bar logs-filter-bar">
-                    <select
-                      className="auth-input"
-                      value={logFilters.level}
-                      onChange={(event) => setLogFilters((current) => ({ ...current, level: event.target.value, page: 1 }))}
-                    >
-                      <option value="">All levels</option>
-                      <option value="info">Info</option>
-                      <option value="warning">Warning</option>
-                      <option value="error">Error</option>
-                    </select>
-                    <input
-                      className="auth-input"
-                      type="text"
-                      placeholder="Search logs"
-                      value={logFilters.query}
-                      onChange={(event) => setLogFilters((current) => ({ ...current, query: event.target.value, page: 1 }))}
-                    />
-                    <div className="inline-status">
-                      {isLoadingLogs ? "Loading logs..." : `${logData.total} log entr${logData.total === 1 ? "y" : "ies"}`}
-                    </div>
-                    <div className="filter-actions">
-                      <button className="ghost-btn" type="button" onClick={() => void loadLogs()}>
-                        Refresh
-                      </button>
-                      <button className="ghost-btn" type="button" onClick={() => setLogFilters({ level: "", query: "", page: 1 })}>
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="history-table-wrap logs-table-wrap">
-                    <table className="history-table result-table logs-table">
-                      <thead>
-                        <tr>
-                          <th>Time</th>
-                          <th>Level</th>
-                          <th>Actor</th>
-                          <th>Action</th>
-                          <th>Status</th>
-                          <th>Message</th>
-                          <th>Details</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {logData.items.length ? (
-                          logData.items.map((item) => {
-                            const detailsText = formatLogDetails(item.details);
-                            return (
-                              <tr key={item.id}>
-                                <td>{formatDateTime(item.created_at)}</td>
-                                <td>
-                                  <span className={`tag ${logTone(item.level)}`}>{item.level}</span>
-                                </td>
-                                <td title={formatLogActor(item)}>{truncateText(formatLogActor(item), 120)}</td>
-                                <td title={formatLogAction(item)}>{truncateText(formatLogAction(item), 150)}</td>
-                                <td>
-                                  <span className={`tag ${logStatusTone(item.status_code)}`}>{item.status_code ?? "-"}</span>
-                                </td>
-                                <td title={item.message}>{truncateText(item.message, 150)}</td>
-                                <td title={detailsText}>{truncateText(detailsText, 180)}</td>
-                              </tr>
-                            );
-                          })
-                        ) : (
-                          <tr>
-                            <td colSpan={7}>
-                              <div className="empty-state">
-                                <p>No logs match the current filters.</p>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="pagination-bar">
-                    <button className="ghost-btn" type="button" disabled={logFilters.page <= 1} onClick={() => setLogFilters((current) => ({ ...current, page: Math.max(1, current.page - 1) }))}>
-                      Previous
-                    </button>
-                    <span>
-                      Page {logData.page} of {Math.max(1, Math.ceil(logData.total / logData.page_size))}
-                    </span>
-                    <button className="ghost-btn" type="button" disabled={logData.page * logData.page_size >= logData.total} onClick={() => setLogFilters((current) => ({ ...current, page: current.page + 1 }))}>
-                      Next
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
-          )}
           {page === "outputs" && (
             <section className="page active">
               <div className="page-header-card">

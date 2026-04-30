@@ -2,23 +2,24 @@ from __future__ import annotations
 
 import typing
 
+import logging
 import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from backend.app.audit import decode_details_json
-from backend.app.auth import AuthenticatedUser, can_view_logs, get_current_user
+from backend.app.auth import AuthenticatedUser, get_current_user
 from backend.app.db import SessionLocal, get_db_session
-from backend.app.models import AppLog, Profile
+from backend.app.models import Profile
 from backend.app.schemas import BulkRunActionResponse, DraftAppendPayload, DraftPayload, ProfileUpsertRequest, RunStartRequest
 from backend.app.service_container import get_run_service
 from backend.app.utils import utcnow
 
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger("rankberry.api")
 
 
 def _sum_costs(*values: typing.Optional[float]) -> typing.Optional[float]:
@@ -31,32 +32,6 @@ def _sum_costs(*values: typing.Optional[float]) -> typing.Optional[float]:
 def _reject_admin_service_access(current_user: AuthenticatedUser) -> None:
     if current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin accounts do not use the AI visibility service.")
-
-
-def _reject_log_access(current_user: AuthenticatedUser) -> None:
-    if not can_view_logs(current_user.email):
-        raise HTTPException(status_code=403, detail="Log access is restricted to configured viewer emails.")
-
-
-def _serialize_log_entry(entry: AppLog) -> dict[str, object]:
-    return {
-        "id": str(entry.id),
-        "created_at": entry.created_at,
-        "level": entry.level,
-        "category": entry.category,
-        "action": entry.action,
-        "message": entry.message,
-        "actor_user_id": str(entry.actor_user_id) if entry.actor_user_id else None,
-        "actor_email": entry.actor_email,
-        "actor_username": entry.actor_username,
-        "entity_type": entry.entity_type,
-        "entity_id": entry.entity_id,
-        "path": entry.path,
-        "method": entry.method,
-        "status_code": entry.status_code,
-        "duration_ms": entry.duration_ms,
-        "details": decode_details_json(entry.details_json),
-    }
 
 
 @router.get("/health")
@@ -80,6 +55,7 @@ def upsert_profile(
             username=payload.username,
         )
     except ValueError as error:
+        logger.warning("profile_upsert_invalid user_id=%s error=%s", current_user.user_id, error)
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return {
@@ -88,7 +64,6 @@ def upsert_profile(
         "username": profile.username,
         "email": current_user.email,
         "is_admin": current_user.is_admin,
-        "can_view_logs": can_view_logs(current_user.email),
         "created_at": profile.created_at,
     }
 
@@ -193,6 +168,7 @@ def start_run(
             project=payload.project,
         )
     except ValueError as error:
+        logger.warning("run_start_invalid user_id=%s error=%s", current_user.user_id, error)
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return {"run_id": run.id, "status": run.status}
@@ -302,6 +278,12 @@ def get_run_detail(
             is_admin=current_user.is_admin,
         )
     except LookupError as error:
+        logger.warning(
+            "run_detail_not_found requester_user_id=%s run_id=%s is_admin=%s",
+            current_user.user_id,
+            run_id,
+            current_user.is_admin,
+        )
         raise HTTPException(status_code=404, detail=str(error)) from error
 
     owner_username = session.execute(
@@ -462,48 +444,3 @@ def get_overview_summary(
         selected_user_id=user_id if current_user.is_admin else None,
         is_admin=current_user.is_admin,
     )
-
-
-@router.get("/logs")
-def get_logs(
-    level: typing.Optional[str] = Query(default=None),
-    query: typing.Optional[str] = Query(default=None),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=100),
-    session: Session = Depends(get_db_session),
-    current_user: AuthenticatedUser = Depends(get_current_user),
-) -> dict[str, object]:
-    _reject_log_access(current_user)
-
-    statement = select(AppLog)
-    normalized_level = (level or "").strip().lower()
-    if normalized_level and normalized_level != "all":
-        statement = statement.where(AppLog.level == normalized_level)
-
-    cleaned_query = (query or "").strip()
-    if cleaned_query:
-        like_query = f"%{cleaned_query}%"
-        statement = statement.where(
-            or_(
-                AppLog.category.ilike(like_query),
-                AppLog.action.ilike(like_query),
-                AppLog.message.ilike(like_query),
-                AppLog.actor_email.ilike(like_query),
-                AppLog.actor_username.ilike(like_query),
-                AppLog.entity_type.ilike(like_query),
-                AppLog.entity_id.ilike(like_query),
-                AppLog.path.ilike(like_query),
-                AppLog.method.ilike(like_query),
-            )
-        )
-
-    total = session.execute(select(func.count()).select_from(statement.subquery())).scalar_one()
-    rows = session.execute(
-        statement.order_by(AppLog.created_at.desc(), AppLog.id.desc()).offset((page - 1) * page_size).limit(page_size)
-    ).scalars().all()
-    return {
-        "items": [_serialize_log_entry(entry) for entry in rows],
-        "page": page,
-        "page_size": page_size,
-        "total": total,
-    }
