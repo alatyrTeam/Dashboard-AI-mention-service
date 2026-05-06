@@ -9,7 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import Settings
@@ -900,20 +900,93 @@ class RunService:
 
         return sorted(project_options, key=lambda value: value.lower())
 
+    def list_user_options(self, session: Session) -> list[dict[str, str]]:
+        return self._collect_user_options(session)
+
+    def forward_history_runs(
+        self,
+        session: Session,
+        *,
+        requester_user_id: uuid.UUID,
+        is_admin: bool,
+        run_ids: list[uuid.UUID],
+        target_user_id: uuid.UUID,
+    ) -> dict[str, object]:
+        unique_run_ids = list(dict.fromkeys(run_ids))
+        if not unique_run_ids:
+            raise ValueError("Select at least one history row to forward.")
+
+        if target_user_id == requester_user_id and not is_admin:
+            raise ValueError("Choose another user to forward rows to.")
+
+        target_exists = session.execute(
+            select(func.count())
+            .select_from(Profile)
+            .where(Profile.user_id == target_user_id)
+        ).scalar_one()
+        if not target_exists:
+            target_exists = session.execute(
+                select(func.count())
+                .select_from(Run)
+                .where(Run.user_id == target_user_id)
+        ).scalar_one()
+        if not target_exists:
+            raise LookupError("Target user was not found.")
+
+        statement = select(Run).where(Run.id.in_(unique_run_ids))
+        if not is_admin:
+            statement = statement.where(Run.user_id == requester_user_id)
+        runs = list(session.execute(statement).scalars())
+        if len(runs) != len(unique_run_ids):
+            raise LookupError("One or more selected history rows were not found.")
+
+        found_run_ids = [run.id for run in runs]
+        for run in runs:
+            run.user_id = target_user_id
+
+        outputs_updated = session.execute(
+            update(Output)
+            .where(Output.run_id.in_(found_run_ids))
+            .values(user_id=target_user_id)
+        ).rowcount or 0
+        results_updated = session.execute(
+            update(RunResult)
+            .where(RunResult.run_id.in_(found_run_ids))
+            .values(user_id=target_user_id)
+        ).rowcount or 0
+        session.commit()
+
+        logger.info(
+            "history_runs_forwarded requester_user_id=%s target_user_id=%s is_admin=%s run_count=%s outputs_updated=%s results_updated=%s",
+            requester_user_id,
+            target_user_id,
+            is_admin,
+            len(found_run_ids),
+            outputs_updated,
+            results_updated,
+        )
+        return {
+            "run_ids": [str(run_id) for run_id in found_run_ids],
+            "total_runs": len(found_run_ids),
+            "outputs_updated": int(outputs_updated),
+            "results_updated": int(results_updated),
+            "target_user_id": str(target_user_id),
+        }
+
     def _collect_user_options(self, session: Session) -> list[dict[str, str]]:
-        user_rows = session.execute(
-            select(Run.user_id, Profile.username)
-            .select_from(Run)
-            .outerjoin(Profile, Profile.user_id == Run.user_id)
-            .group_by(Run.user_id, Profile.username)
-        ).all()
+        usernames_by_user_id: dict[uuid.UUID, typing.Optional[str]] = {}
+        for profile_user_id, username in session.execute(select(Profile.user_id, Profile.username)).all():
+            usernames_by_user_id[profile_user_id] = username
+
+        for run_user_id in session.execute(select(Run.user_id).group_by(Run.user_id)).scalars():
+            usernames_by_user_id.setdefault(run_user_id, None)
 
         options = [
             {
-                "user_id": str(run_user_id),
-                "username": self._format_username(username, run_user_id),
+                "user_id": str(option_user_id),
+                "username": self._format_username(username, option_user_id),
             }
-            for run_user_id, username in user_rows
+            for option_user_id, username in usernames_by_user_id.items()
         ]
         return sorted(options, key=lambda item: item["username"].lower())
 

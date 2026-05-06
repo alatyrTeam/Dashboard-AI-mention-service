@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from pydantic import BaseModel, Field
 
 
@@ -40,3 +42,16 @@ class BulkRunActionResponse(BaseModel):
     run_ids: list[str] = Field(default_factory=list)
     total_runs: int = 0
     status: str
+
+
+class HistoryForwardRequest(BaseModel):
+    run_ids: list[uuid.UUID] = Field(min_length=1)
+    target_user_id: uuid.UUID
+
+
+class HistoryForwardResponse(BaseModel):
+    run_ids: list[str] = Field(default_factory=list)
+    total_runs: int = 0
+    outputs_updated: int = 0
+    results_updated: int = 0
+    target_user_id: str

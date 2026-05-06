@@ -13,7 +13,15 @@ from sqlalchemy.orm import Session
 from backend.app.auth import AuthenticatedUser, get_current_user
 from backend.app.db import SessionLocal, get_db_session
 from backend.app.models import Profile
-from backend.app.schemas import BulkRunActionResponse, DraftAppendPayload, DraftPayload, ProfileUpsertRequest, RunStartRequest
+from backend.app.schemas import (
+    BulkRunActionResponse,
+    DraftAppendPayload,
+    DraftPayload,
+    HistoryForwardRequest,
+    HistoryForwardResponse,
+    ProfileUpsertRequest,
+    RunStartRequest,
+)
 from backend.app.service_container import get_run_service
 from backend.app.utils import utcnow
 
@@ -196,6 +204,16 @@ def get_user_projects(
         user_id=None if current_user.is_admin else current_user.user_id,
     )
     return {"projects": projects}
+
+
+@router.get("/users/options")
+def get_user_options(
+    session: Session = Depends(get_db_session),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict[str, object]:
+    service = get_run_service()
+    users = service.list_user_options(session)
+    return {"users": users}
 
 
 @router.get("/runs/failed")
@@ -396,6 +414,28 @@ def get_history(
         "page_size": page_size,
         "total": total,
     }
+
+
+@router.post("/history/forward", response_model=HistoryForwardResponse)
+def forward_history(
+    payload: HistoryForwardRequest,
+    session: Session = Depends(get_db_session),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> HistoryForwardResponse:
+    service = get_run_service()
+    try:
+        result = service.forward_history_runs(
+            session,
+            requester_user_id=current_user.user_id,
+            is_admin=current_user.is_admin,
+            run_ids=payload.run_ids,
+            target_user_id=payload.target_user_id,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return HistoryForwardResponse(**result)
 
 
 @router.get("/outputs")
