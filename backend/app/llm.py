@@ -16,6 +16,8 @@ from backend.app.utils import coerce_float, extract_json_object, normalize_csv_t
 
 logger = logging.getLogger("rankberry.llm")
 
+JSON_OBJECT_RESEND_LIMIT = 5
+
 
 class LLMError(Exception):
     pass
@@ -160,8 +162,11 @@ class LLMClient:
             gpt_output=gpt_output,
             gem_output=gem_output,
         )
-        result = self._call_gemini(prompt, self.settings.gemini_analysis_model)
-        parsed = extract_json_object(result.text)
+        parsed, usage = self._call_gemini_for_json_object(
+            prompt=prompt,
+            model=self.settings.gemini_analysis_model,
+            expected_keys=("response_count", "brand_list", "citation_format"),
+        )
 
         brand_list = parsed.get("brand_list")
         if isinstance(brand_list, list):
@@ -179,7 +184,7 @@ class LLMClient:
             brand_list=normalize_csv_text(brand_list),
             citation_format=normalize_citation_format(
                 normalize_csv_text(citation_format)),
-            usage=result.usage,
+            usage=usage,
         )
 
     def analyze_final_sentiment(
@@ -289,6 +294,73 @@ class LLMClient:
             usage=self._extract_gemini_usage(response, model),
         )
 
+    def _call_gemini_for_json_object(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        expected_keys: tuple[str, ...],
+    ) -> tuple[dict[str, object], typing.Optional[LLMUsage]]:
+        current_prompt = prompt
+        usages: list[LLMUsage] = []
+        last_error: typing.Optional[Exception] = None
+        last_text = ""
+
+        for resend_count in range(JSON_OBJECT_RESEND_LIMIT + 1):
+            result = self._call_gemini(current_prompt, model)
+            if result.usage is not None:
+                usages.append(result.usage)
+            last_text = result.text
+
+            try:
+                return extract_json_object(result.text), self._combine_usage(usages)
+            except ValueError as error:
+                last_error = error
+                if resend_count >= JSON_OBJECT_RESEND_LIMIT:
+                    break
+                logger.warning(
+                    "llm_json_object_retrying model=%s resend=%s max_resends=%s error=%s",
+                    model,
+                    resend_count + 1,
+                    JSON_OBJECT_RESEND_LIMIT,
+                    error,
+                )
+                current_prompt = self._build_json_object_retry_prompt(
+                    original_prompt=prompt,
+                    previous_text=result.text,
+                    parse_error=error,
+                    expected_keys=expected_keys,
+                )
+
+        logger.error(
+            "llm_json_object_fallback model=%s attempts=%s last_error=%s last_text_prefix=%s",
+            model,
+            JSON_OBJECT_RESEND_LIMIT + 1,
+            last_error,
+            last_text[:200],
+        )
+        return {key: None for key in expected_keys}, self._combine_usage(usages)
+
+    def _build_json_object_retry_prompt(
+        self,
+        *,
+        original_prompt: str,
+        previous_text: str,
+        parse_error: Exception,
+        expected_keys: tuple[str, ...],
+    ) -> str:
+        key_list = ", ".join(expected_keys)
+        return (
+            f"{original_prompt}\n\n"
+            "The previous answer was not a valid JSON object.\n"
+            f"Parser error: {parse_error}\n\n"
+            "Previous answer:\n"
+            f"{previous_text[:2000]}\n\n"
+            "Try again. Return exactly one JSON object only. "
+            f"The object must contain these keys: {key_list}. "
+            "Do not include markdown, comments, arrays, or any text outside the JSON object."
+        )
+
     def _post_json(self, url: str, *, headers: dict[str, str], json_body: dict[str, object]) -> dict:
         merged_headers = {"Content-Type": "application/json", **headers}
         try:
@@ -310,7 +382,7 @@ class LLMClient:
             return response.json()
         except json.JSONDecodeError as error:
             logger.error("llm_provider_invalid_json url=%s body_prefix=%s", self._redact_url(url), response.text[:200])
-            raise NonRetryableLLMError(
+            raise RetryableLLMError(
                 f"Provider returned invalid JSON: {response.text[:500]}") from error
 
     def _redact_url(self, url: str) -> str:
@@ -403,6 +475,40 @@ class LLMClient:
             + (completion_tokens * pricing.output_per_million_usd)
         ) / 1_000_000
         return round(estimated_cost, 8)
+
+    def _combine_usage(self, usages: list[LLMUsage]) -> typing.Optional[LLMUsage]:
+        if not usages:
+            return None
+
+        first = usages[0]
+        return LLMUsage(
+            provider=first.provider,
+            model=first.model,
+            prompt_tokens=self._sum_optional_ints(item.prompt_tokens for item in usages),
+            completion_tokens=self._sum_optional_ints(item.completion_tokens for item in usages),
+            total_tokens=self._sum_optional_ints(item.total_tokens for item in usages),
+            estimated_cost_usd=self._sum_optional_floats(item.estimated_cost_usd for item in usages),
+        )
+
+    def _sum_optional_ints(self, values: typing.Iterable[typing.Optional[int]]) -> typing.Optional[int]:
+        total = 0
+        has_value = False
+        for value in values:
+            if value is None:
+                continue
+            total += value
+            has_value = True
+        return total if has_value else None
+
+    def _sum_optional_floats(self, values: typing.Iterable[typing.Optional[float]]) -> typing.Optional[float]:
+        total = 0.0
+        has_value = False
+        for value in values:
+            if value is None:
+                continue
+            total += value
+            has_value = True
+        return round(total, 8) if has_value else None
 
     def _match_model_pricing(self, provider: str, model: str) -> typing.Optional[ModelPricing]:
         normalized_model = model.strip().lower()
