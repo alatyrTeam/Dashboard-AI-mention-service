@@ -1562,6 +1562,7 @@ export default function App() {
   const [reportExportDialog, setReportExportDialog] = useState<ReportExportDialog | null>(null);
   const [historyForwardDialog, setHistoryForwardDialog] = useState<HistoryForwardDialog | null>(null);
   const [isHistoryForwardMode, setIsHistoryForwardMode] = useState(false);
+  const [isHistoryInputMode, setIsHistoryInputMode] = useState(false);
   const [selectedHistoryRunIds, setSelectedHistoryRunIds] = useState<string[]>([]);
   const [startProjectDialog, setStartProjectDialog] = useState<StartProjectDialog | null>(null);
   const [isCsvImportOpen, setIsCsvImportOpen] = useState(false);
@@ -1704,6 +1705,7 @@ export default function App() {
         setReportExportDialog(null);
         setHistoryForwardDialog(null);
         setIsHistoryForwardMode(false);
+        setIsHistoryInputMode(false);
         setSelectedHistoryRunIds([]);
         setStartProjectDialog(null);
         setIsCsvImportOpen(false);
@@ -2181,14 +2183,24 @@ export default function App() {
 
   function startHistoryForwardMode() {
     setIsHistoryForwardMode(true);
+    setIsHistoryInputMode(false);
     setSelectedHistoryRunIds([]);
     setStatusMessage("");
   }
 
   function cancelHistoryForwardMode() {
     setIsHistoryForwardMode(false);
+    setIsHistoryInputMode(false);
     setSelectedHistoryRunIds([]);
     setHistoryForwardDialog(null);
+  }
+
+  function startHistoryInputMode() {
+    setIsHistoryInputMode(true);
+    setIsHistoryForwardMode(false);
+    setHistoryForwardDialog(null);
+    setSelectedHistoryRunIds([]);
+    setStatusMessage("");
   }
 
   function toggleHistoryRunSelection(runId: string) {
@@ -2248,6 +2260,7 @@ export default function App() {
       const targetUser = historyForwardDialog.users.find((user) => user.user_id === response.target_user_id);
       setHistoryForwardDialog(null);
       setIsHistoryForwardMode(false);
+      setIsHistoryInputMode(false);
       setSelectedHistoryRunIds([]);
       await Promise.all([loadHistory(sessionToken), loadOverview(sessionToken)]);
       setStatusMessage(
@@ -2258,6 +2271,40 @@ export default function App() {
     } finally {
       setIsForwardingHistory(false);
     }
+  }
+
+  function addSelectedHistoryRowsToInputs() {
+    if (!selectedHistoryRunIds.length) {
+      setValidationWarning("Select at least one history row to add to inputs.");
+      return;
+    }
+
+    const selectedIds = new Set(selectedHistoryRunIds);
+    const rowsToAdd = historyData.items
+      .filter((item) => selectedIds.has(item.run_id))
+      .map((item) => createServiceRow({
+        keyword: item.keyword,
+        domain: item.domain,
+        brand: item.brand,
+        prompt: item.prompt,
+        project: item.project || "",
+      }));
+
+    if (!rowsToAdd.length) {
+      setValidationWarning("Selected rows are not visible anymore. Select rows again.");
+      return;
+    }
+
+    serviceRowsDirtyRef.current = true;
+    serviceRowsRevisionRef.current += 1;
+    updateServiceRows((current) => {
+      const hasExistingInput = current.some((row) => hasAnyRowValue(toDraftForm(row)));
+      return hasExistingInput ? [...current, ...rowsToAdd] : rowsToAdd;
+    });
+    setIsHistoryInputMode(false);
+    setSelectedHistoryRunIds([]);
+    setPage("service");
+    setStatusMessage(`${rowsToAdd.length} row${rowsToAdd.length === 1 ? "" : "s"} added to inputs.`);
   }
 
   function updateAuthField(field: keyof AuthForm, value: string) {
@@ -2453,6 +2500,7 @@ export default function App() {
     setReportExportDialog(null);
     setHistoryForwardDialog(null);
     setIsHistoryForwardMode(false);
+    setIsHistoryInputMode(false);
     setSelectedHistoryRunIds([]);
     setStartProjectDialog(null);
     setIsCsvImportOpen(false);
@@ -3648,10 +3696,26 @@ export default function App() {
                             {isLoadingForwardUsers ? "Loading users..." : `forward${selectedHistoryRunIds.length ? ` (${selectedHistoryRunIds.length})` : ""}`}
                           </button>
                         </>
+                      ) : isHistoryInputMode ? (
+                        <>
+                          <button className="ghost-btn" type="button" onClick={cancelHistoryForwardMode}>
+                            cancel
+                          </button>
+                          <button className="primary-btn" type="button" onClick={addSelectedHistoryRowsToInputs} disabled={!selectedHistoryRunIds.length}>
+                            continue{selectedHistoryRunIds.length ? ` (${selectedHistoryRunIds.length})` : ""}
+                          </button>
+                        </>
                       ) : (
-                        <button className="ghost-btn" type="button" onClick={startHistoryForwardMode}>
-                          forward to another user
-                        </button>
+                        <>
+                          {!isAdmin ? (
+                            <button className="ghost-btn" type="button" onClick={startHistoryInputMode}>
+                              add to inputs
+                            </button>
+                          ) : null}
+                          <button className="ghost-btn" type="button" onClick={startHistoryForwardMode}>
+                            forward to another user
+                          </button>
+                        </>
                       )}
                       <button className="primary-btn" type="button" onClick={() => void openReportExportDialogFor("history")}>
                         {isPreparingReport === "history" ? "Preparing..." : isExportingHistory ? "Exporting..." : "create a report"}
@@ -3662,14 +3726,15 @@ export default function App() {
                   <div className="history-list page-history-list">
                     {historyData.items.length ? (
                       historyData.items.map((item) => {
-                        const isSelectedForForward = selectedHistoryRunIds.includes(item.run_id);
+                        const isHistorySelectionMode = isHistoryForwardMode || isHistoryInputMode;
+                        const isSelectedForAction = selectedHistoryRunIds.includes(item.run_id);
                         return (
-                        <section key={item.run_id} className={`history-card ${isSelectedForForward ? "history-card-selected" : ""}`}>
+                        <section key={item.run_id} className={`history-card ${isSelectedForAction ? "history-card-selected" : ""}`}>
                           <div className="history-card-head">
                             <div className="history-card-title-row">
-                              {isHistoryForwardMode ? (
-                                <label className="history-select-box" aria-label={`Select ${item.keyword} for forwarding`}>
-                                  <input type="checkbox" checked={isSelectedForForward} onChange={() => toggleHistoryRunSelection(item.run_id)} />
+                              {isHistorySelectionMode ? (
+                                <label className="history-select-box" aria-label={`Select ${item.keyword}`}>
+                                  <input type="checkbox" checked={isSelectedForAction} onChange={() => toggleHistoryRunSelection(item.run_id)} />
                                 </label>
                               ) : null}
                               <strong>{formatDateTime(item.created_at)}</strong>
