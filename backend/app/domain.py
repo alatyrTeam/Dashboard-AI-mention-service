@@ -12,10 +12,13 @@ class IterationLike:
     iteration_number: int
     gpt_output: typing.Optional[str]
     gem_output: typing.Optional[str]
+    grok_output: typing.Optional[str]
     gpt_domain_mention: bool
     gem_domain_mention: bool
+    grok_domain_mention: bool
     gpt_brand_mention: bool
     gem_brand_mention: bool
+    grok_brand_mention: bool
     response_count: typing.Optional[float]
     brand_list: typing.Optional[str]
     citation_format: typing.Optional[str]
@@ -156,8 +159,10 @@ def aggregate_outputs(outputs: list[IterationLike]) -> dict[str, object]:
     return {
         "gpt_domain_mention": any(item.gpt_domain_mention for item in ordered),
         "gem_domain_mention": any(item.gem_domain_mention for item in ordered),
+        "grok_domain_mention": any(item.grok_domain_mention for item in ordered),
         "gpt_brand_mention": any(item.gpt_brand_mention for item in ordered),
         "gem_brand_mention": any(item.gem_brand_mention for item in ordered),
+        "grok_brand_mention": any(item.grok_brand_mention for item in ordered),
         "response_count_avg": average_response_count([item.response_count for item in ordered]),
         "brand_list": merge_brand_lists([item.brand_list for item in ordered]),
         "citation_format": merge_citation_formats([item.citation_format for item in ordered]),
@@ -185,10 +190,62 @@ def select_sentiment_inputs(outputs: list[IterationLike], limit: int = 4) -> lis
                     mentioned=bool(item.gem_domain_mention or item.gem_brand_mention),
                 )
             )
+        if item.grok_output:
+            candidates.append(
+                SentimentInput(
+                    provider="grok",
+                    iteration_number=item.iteration_number,
+                    text=item.grok_output,
+                    mentioned=bool(item.grok_domain_mention or item.grok_brand_mention),
+                )
+            )
 
     mentioned = [candidate for candidate in candidates if candidate.mentioned]
     others = [candidate for candidate in candidates if not candidate.mentioned]
-    return (mentioned + others)[:limit]
+    ordered_candidates = mentioned + others
+    selected = ordered_candidates[:limit]
+    if limit <= 0:
+        return []
+
+    provider_order: list[str] = []
+    for candidate in candidates:
+        if candidate.provider not in provider_order:
+            provider_order.append(candidate.provider)
+
+    for provider in provider_order:
+        if any(item.provider == provider for item in selected):
+            continue
+        replacement = next((item for item in ordered_candidates if item.provider == provider), None)
+        if replacement is None:
+            continue
+        if len(selected) < limit:
+            selected.append(replacement)
+            continue
+
+        provider_counts = {
+            selected_item.provider: sum(1 for item in selected if item.provider == selected_item.provider)
+            for selected_item in selected
+        }
+        replace_index = next(
+            (
+                index
+                for index in range(len(selected) - 1, -1, -1)
+                if provider_counts[selected[index].provider] > 1 and not selected[index].mentioned
+            ),
+            None,
+        )
+        if replace_index is None:
+            replace_index = next(
+                (
+                    index
+                    for index in range(len(selected) - 1, -1, -1)
+                    if provider_counts[selected[index].provider] > 1
+                ),
+                len(selected) - 1,
+            )
+        selected[replace_index] = replacement
+
+    return selected[:limit]
 
 
 def drop_one_gpt_for_sentiment_retry(inputs: list[SentimentInput]) -> list[SentimentInput]:

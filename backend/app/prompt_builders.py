@@ -11,7 +11,7 @@ def build_generation_request_prompt(
     project: typing.Optional[str],
     iteration_number: int,
 ) -> str:
-    """Single edit point for the first GPT/Gemini request in every iteration.
+    """Single edit point for the first GPT/Gemini/Grok request in every iteration.
 
     Change this function if you want to alter what the generation models receive
     for iteration 1, 2, and 3. Right now it intentionally sends only the raw

@@ -20,17 +20,19 @@ class AggregationTests(unittest.TestCase):
 
     def test_aggregate_outputs_applies_rules(self) -> None:
         outputs = [
-            IterationLike(1, "a", "b", True, False, False, True, 2.0, "Rankberry", "text"),
-            IterationLike(2, "c", "d", False, False, True, False, 4.0, "RB, Rankberry", "N/A"),
-            IterationLike(3, "e", "f", False, True, False, False, None, None, "url"),
+            IterationLike(1, "a", "b", "g", True, False, True, False, True, False, 2.0, "Rankberry", "text"),
+            IterationLike(2, "c", "d", "h", False, False, False, True, False, False, 4.0, "RB, Rankberry", "N/A"),
+            IterationLike(3, "e", "f", "i", False, True, False, False, False, True, None, None, "url"),
         ]
 
         result = aggregate_outputs(outputs)
 
         self.assertTrue(result["gpt_domain_mention"])
         self.assertTrue(result["gem_domain_mention"])
+        self.assertTrue(result["grok_domain_mention"])
         self.assertTrue(result["gpt_brand_mention"])
         self.assertTrue(result["gem_brand_mention"])
+        self.assertTrue(result["grok_brand_mention"])
         self.assertEqual(result["response_count_avg"], 3.0)
         self.assertEqual(result["brand_list"], "Rankberry, RB")
         self.assertEqual(result["citation_format"], "text, url")

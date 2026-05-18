@@ -1,4 +1,4 @@
-Analyze the GPT and Gemini outputs below.
+Analyze the GPT, Gemini, and Grok outputs below.
 Return valid JSON with exactly these keys:
 - response_count
 - brand_list
@@ -24,3 +24,6 @@ GPT output:
 
 Gemini output:
 {gem_output}
+
+Grok output:
+{grok_output}

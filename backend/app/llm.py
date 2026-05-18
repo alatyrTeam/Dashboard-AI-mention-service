@@ -76,6 +76,12 @@ GEMINI_MODEL_PRICING: dict[str, ModelPricing] = {
     "gemini-2.0-flash-lite": ModelPricing(input_per_million_usd=0.075, output_per_million_usd=0.30),
 }
 
+GROK_MODEL_PRICING: dict[str, ModelPricing] = {
+    "grok-4.3": ModelPricing(input_per_million_usd=1.25, output_per_million_usd=2.50),
+    "grok-4.20": ModelPricing(input_per_million_usd=1.25, output_per_million_usd=2.50),
+    "grok-3-mini": ModelPricing(input_per_million_usd=0.30, output_per_million_usd=0.50),
+}
+
 
 class LLMClient:
     def __init__(self, settings: Settings) -> None:
@@ -84,7 +90,7 @@ class LLMClient:
         self.iteration_analysis_template = read_text_file(
             settings.iteration_analysis_prompt_file,
             (
-                "Analyze the GPT and Gemini outputs below.\n"
+                "Analyze the GPT, Gemini, and Grok outputs below.\n"
                 "Return valid JSON with exactly these keys: response_count, brand_list, citation_format.\n"
                 "Use null when a value is not available.\n"
                 "citation_format must describe whether the mention format is plain text, URL/link, or absent.\n"
@@ -95,7 +101,8 @@ class LLMClient:
                 "Project: {project}\n"
                 "Iteration: {iteration_number}\n\n"
                 "GPT output:\n{gpt_output}\n\n"
-                "Gemini output:\n{gem_output}\n"
+                "Gemini output:\n{gem_output}\n\n"
+                "Grok output:\n{grok_output}\n"
             ),
         )
         self.final_sentiment_template = read_text_file(
@@ -142,6 +149,9 @@ class LLMClient:
     def generate_gemini_output(self, prompt: str) -> TextGenerationResult:
         return self._call_gemini(prompt, self.settings.gemini_model)
 
+    def generate_grok_output(self, prompt: str) -> TextGenerationResult:
+        return self._call_grok(prompt, self.settings.grok_model)
+
     def analyze_iteration(
         self,
         *,
@@ -152,6 +162,7 @@ class LLMClient:
         iteration_number: int,
         gpt_output: str,
         gem_output: str,
+        grok_output: str,
     ) -> IterationAnalysis:
         prompt = self.iteration_analysis_template.format(
             keyword=keyword,
@@ -161,6 +172,7 @@ class LLMClient:
             iteration_number=iteration_number,
             gpt_output=gpt_output,
             gem_output=gem_output,
+            grok_output=grok_output,
         )
         parsed, usage = self._call_gemini_for_json_object(
             prompt=prompt,
@@ -292,6 +304,33 @@ class LLMClient:
         return TextGenerationResult(
             text=text.strip(),
             usage=self._extract_gemini_usage(response, model),
+        )
+
+    def _call_grok(self, prompt: str, model: str) -> TextGenerationResult:
+        if not self.settings.grok_api_key:
+            raise NonRetryableLLMError("GROK_API_KEY is not configured.")
+
+        payload = {
+            "model": model,
+            "temperature": 0.2,
+            "messages": [
+                {"role": "system", "content": "You are a precise assistant."},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        response = self._post_json(
+            f"{self.settings.grok_base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.settings.grok_api_key}"},
+            json_body=payload,
+        )
+        try:
+            content = response["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as error:
+            raise NonRetryableLLMError(
+                f"Unexpected Grok response shape: {response}") from error
+        return TextGenerationResult(
+            text=str(content).strip(),
+            usage=self._extract_grok_usage(response, model),
         )
 
     def _call_gemini_for_json_object(
@@ -455,6 +494,30 @@ class LLMClient:
             ),
         )
 
+    def _extract_grok_usage(self, response: dict[str, object], configured_model: str) -> typing.Optional[LLMUsage]:
+        usage = response.get("usage")
+        if not isinstance(usage, dict):
+            return None
+
+        prompt_tokens = self._coerce_int(usage.get("prompt_tokens"))
+        completion_tokens = self._coerce_int(usage.get("completion_tokens"))
+        total_tokens = self._coerce_int(usage.get("total_tokens"))
+        model = str(response.get("model") or configured_model)
+
+        return LLMUsage(
+            provider="grok",
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            estimated_cost_usd=self._estimate_text_cost(
+                provider="grok",
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            ),
+        )
+
     def _estimate_text_cost(
         self,
         *,
@@ -512,7 +575,14 @@ class LLMClient:
 
     def _match_model_pricing(self, provider: str, model: str) -> typing.Optional[ModelPricing]:
         normalized_model = model.strip().lower()
-        pricing_table = OPENAI_MODEL_PRICING if provider == "openai" else GEMINI_MODEL_PRICING
+        pricing_tables = {
+            "openai": OPENAI_MODEL_PRICING,
+            "gemini": GEMINI_MODEL_PRICING,
+            "grok": GROK_MODEL_PRICING,
+        }
+        pricing_table = pricing_tables.get(provider)
+        if pricing_table is None:
+            return None
         for base_name, pricing in pricing_table.items():
             if normalized_model == base_name or normalized_model.startswith(f"{base_name}-"):
                 return pricing

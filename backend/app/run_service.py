@@ -567,8 +567,10 @@ class RunService:
 
         gpt_output: typing.Optional[str] = None
         gem_output: typing.Optional[str] = None
+        grok_output: typing.Optional[str] = None
         gpt_result: typing.Optional[TextGenerationResult] = None
         gem_result: typing.Optional[TextGenerationResult] = None
+        grok_result: typing.Optional[TextGenerationResult] = None
         generation_errors: list[str] = []
 
         try:
@@ -595,8 +597,21 @@ class RunService:
             logger.warning("gemini_generation_failed run_id=%s iteration=%s error=%s", run.id, iteration_number, error_message)
             generation_errors.append(f"Gemini: {error_message}")
 
+        try:
+            grok_result = self.llm_client.call_with_retry(
+                "Grok generation",
+                lambda: self.llm_client.generate_grok_output(prompt),
+            )
+            grok_output = grok_result.text
+            self._raise_if_run_stopped(run.id)
+        except Exception as error:
+            error_message = compact_error_message(error)
+            logger.warning("grok_generation_failed run_id=%s iteration=%s error=%s", run.id, iteration_number, error_message)
+            generation_errors.append(f"Grok: {error_message}")
+
         gpt_domain_mention, gpt_brand_mention = detect_mentions(gpt_output, run.domain, run.brand)
         gem_domain_mention, gem_brand_mention = detect_mentions(gem_output, run.domain, run.brand)
+        grok_domain_mention, grok_brand_mention = detect_mentions(grok_output, run.domain, run.brand)
 
         with self.session_factory() as session:
             output_row = session.execute(
@@ -609,16 +624,22 @@ class RunService:
             output_row.project = run.project
             output_row.gpt_output = gpt_output
             output_row.gem_output = gem_output
+            output_row.grok_output = grok_output
             output_row.openai_generation_cost_usd = (
                 gpt_result.usage.estimated_cost_usd if gpt_result and gpt_result.usage else None
             )
             output_row.gemini_generation_cost_usd = (
                 gem_result.usage.estimated_cost_usd if gem_result and gem_result.usage else None
             )
+            output_row.grok_generation_cost_usd = (
+                grok_result.usage.estimated_cost_usd if grok_result and grok_result.usage else None
+            )
             output_row.gpt_domain_mention = gpt_domain_mention
             output_row.gpt_brand_mention = gpt_brand_mention
             output_row.gem_domain_mention = gem_domain_mention
             output_row.gem_brand_mention = gem_brand_mention
+            output_row.grok_domain_mention = grok_domain_mention
+            output_row.grok_brand_mention = grok_brand_mention
             session.commit()
 
         self._raise_if_run_stopped(run.id)
@@ -642,6 +663,7 @@ class RunService:
                     iteration_number=iteration_number,
                     gpt_output=gpt_output or "",
                     gem_output=gem_output or "",
+                    grok_output=grok_output or "",
                 ),
             )
         except Exception as error:
@@ -691,10 +713,13 @@ class RunService:
                 iteration_number=item.iteration_number,
                 gpt_output=item.gpt_output,
                 gem_output=item.gem_output,
+                grok_output=item.grok_output,
                 gpt_domain_mention=item.gpt_domain_mention,
                 gem_domain_mention=item.gem_domain_mention,
+                grok_domain_mention=item.grok_domain_mention,
                 gpt_brand_mention=item.gpt_brand_mention,
                 gem_brand_mention=item.gem_brand_mention,
+                grok_brand_mention=item.grok_brand_mention,
                 response_count=item.response_count,
                 brand_list=item.brand_list,
                 citation_format=item.citation_format,
@@ -744,8 +769,10 @@ class RunService:
             result.project = run.project
             result.gpt_domain_mention = bool(aggregate_payload["gpt_domain_mention"])
             result.gem_domain_mention = bool(aggregate_payload["gem_domain_mention"])
+            result.grok_domain_mention = bool(aggregate_payload["grok_domain_mention"])
             result.gpt_brand_mention = bool(aggregate_payload["gpt_brand_mention"])
             result.gem_brand_mention = bool(aggregate_payload["gem_brand_mention"])
+            result.grok_brand_mention = bool(aggregate_payload["grok_brand_mention"])
             result.response_count_avg = aggregate_payload["response_count_avg"]  # type: ignore[assignment]
             result.brand_list = aggregate_payload["brand_list"]  # type: ignore[assignment]
             result.citation_format = aggregate_payload["citation_format"]  # type: ignore[assignment]
@@ -807,8 +834,10 @@ class RunService:
             "total_iterations": run.total_iterations,
             "gpt_domain_mention": run_result.gpt_domain_mention,
             "gem_domain_mention": run_result.gem_domain_mention,
+            "grok_domain_mention": run_result.grok_domain_mention,
             "gpt_brand_mention": run_result.gpt_brand_mention,
             "gem_brand_mention": run_result.gem_brand_mention,
+            "grok_brand_mention": run_result.grok_brand_mention,
             "response_count_avg": run_result.response_count_avg,
             "brand_list": run_result.brand_list,
             "citation_format": run_result.citation_format,
@@ -864,10 +893,18 @@ class RunService:
         return {
             "total_results": len(rows),
             "brand_matches": sum(
-                1 for run_result, _ in rows if run_result.gpt_brand_mention or run_result.gem_brand_mention
+                1
+                for run_result, _ in rows
+                if run_result.gpt_brand_mention
+                or run_result.gem_brand_mention
+                or run_result.grok_brand_mention
             ),
             "domain_matches": sum(
-                1 for run_result, _ in rows if run_result.gpt_domain_mention or run_result.gem_domain_mention
+                1
+                for run_result, _ in rows
+                if run_result.gpt_domain_mention
+                or run_result.gem_domain_mention
+                or run_result.grok_domain_mention
             ),
             "users": len({str(run.user_id) for _, run in rows}),
             "spend_usd": round(sum((run_costs or {}).get(run.id, 0.0) for _, run in rows), 8),
@@ -1105,9 +1142,17 @@ class RunService:
             bucket = buckets[key]
             bucket["total_runs"] += 1
             bucket["spend_usd"] += (run_costs or {}).get(run.id, 0.0)
-            if run_result.gpt_brand_mention or run_result.gem_brand_mention:
+            if (
+                run_result.gpt_brand_mention
+                or run_result.gem_brand_mention
+                or run_result.grok_brand_mention
+            ):
                 bucket["brand_matches"] += 1
-            if run_result.gpt_domain_mention or run_result.gem_domain_mention:
+            if (
+                run_result.gpt_domain_mention
+                or run_result.gem_domain_mention
+                or run_result.grok_domain_mention
+            ):
                 bucket["domain_matches"] += 1
 
         return [
@@ -1139,6 +1184,7 @@ class RunService:
                 for value in (
                     output.openai_generation_cost_usd,
                     output.gemini_generation_cost_usd,
+                    output.grok_generation_cost_usd,
                     output.gemini_analysis_cost_usd,
                 )
             )

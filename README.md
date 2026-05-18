@@ -43,6 +43,7 @@ Required runtime values still include:
 - `MIGRATION_DATABASE_URL` if migrations should use a different connection string
 - `SUPABASE_URL` or `VITE_SUPABASE_URL`
 - `SUPABASE_ANON_KEY` or `VITE_SUPABASE_ANON_KEY`
+- `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `GROK_API_KEY` for LLM generation and analysis
 
 The backend uses FastAPI, SQLAlchemy, a DB-backed run queue, and the shared Supabase/Postgres tables:
 

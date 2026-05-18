@@ -22,10 +22,13 @@ def build_settings() -> Settings:
         supabase_anon_key=None,
         openai_api_key="test",
         gemini_api_key="test",
+        grok_api_key="test",
         openai_model="test-openai",
         gemini_model="test-gemini",
         gemini_analysis_model="test-gemini-analysis",
         gemini_sentiment_model="test-gemini-sentiment",
+        grok_model="test-grok",
+        grok_base_url="https://api.x.ai/v1",
         max_llm_retries=1,
         request_timeout_seconds=5.0,
         raw_output_retention_days=30,
@@ -72,6 +75,7 @@ class LLMJsonRetryTests(unittest.TestCase):
             iteration_number=1,
             gpt_output="gpt",
             gem_output="gem",
+            grok_output="grok",
         )
 
         self.assertEqual(len(client.prompts), 2)
@@ -104,6 +108,7 @@ class LLMJsonRetryTests(unittest.TestCase):
             iteration_number=1,
             gpt_output="gpt",
             gem_output="gem",
+            grok_output="grok",
         )
 
         self.assertEqual(len(client.prompts), JSON_OBJECT_RESEND_LIMIT + 1)

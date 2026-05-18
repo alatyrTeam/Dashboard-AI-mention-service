@@ -41,8 +41,10 @@ type ResultItem = {
   total_iterations: number;
   gpt_domain_mention: boolean;
   gem_domain_mention: boolean;
+  grok_domain_mention: boolean;
   gpt_brand_mention: boolean;
   gem_brand_mention: boolean;
+  grok_brand_mention: boolean;
   response_count_avg: number | null;
   brand_list: string | null;
   citation_format: string | null;
@@ -162,15 +164,19 @@ type RunOutputRecord = {
   iteration_number: number;
   gpt_output: string | null;
   gem_output: string | null;
+  grok_output: string | null;
   gpt_domain_mention: boolean;
   gem_domain_mention: boolean;
+  grok_domain_mention: boolean;
   gpt_brand_mention: boolean;
   gem_brand_mention: boolean;
+  grok_brand_mention: boolean;
   response_count: number | null;
   brand_list: string | null;
   citation_format: string | null;
   openai_generation_cost_usd: number | null;
   gemini_generation_cost_usd: number | null;
+  grok_generation_cost_usd: number | null;
   gemini_analysis_cost_usd: number | null;
   estimated_total_cost_usd: number | null;
   project: string | null;
@@ -184,8 +190,10 @@ type RunResultRecord = {
   project: string | null;
   gpt_domain_mention: boolean;
   gem_domain_mention: boolean;
+  grok_domain_mention: boolean;
   gpt_brand_mention: boolean;
   gem_brand_mention: boolean;
+  grok_brand_mention: boolean;
   response_count_avg: number | null;
   brand_list: string | null;
   citation_format: string | null;
@@ -799,6 +807,8 @@ function summarizeMentions(item: ResultItem | RunOutputRecord | RunResultRecord)
   if (item.gpt_domain_mention) labels.push("GPT domain");
   if (item.gem_brand_mention) labels.push("Gemini brand");
   if (item.gem_domain_mention) labels.push("Gemini domain");
+  if (item.grok_brand_mention) labels.push("Grok brand");
+  if (item.grok_domain_mention) labels.push("Grok domain");
   return labels.length ? labels.join(" | ") : "None";
 }
 
@@ -4498,6 +4508,10 @@ export default function App() {
                           <span>Gemini Output</span>
                           <div className="detail-output-body">{output.gem_output || "-"}</div>
                         </div>
+                        <div className="field-stack">
+                          <span>Grok Output</span>
+                          <div className="detail-output-body">{output.grok_output || "-"}</div>
+                        </div>
                       </div>
                       <div className="detail-metrics">
                         <span>Response count: {formatNumber(output.response_count)}</span>
@@ -4505,6 +4519,7 @@ export default function App() {
                         <span>Citation: {output.citation_format || "-"}</span>
                         <span>OpenAI generation: {formatUsd(output.openai_generation_cost_usd)}</span>
                         <span>Gemini generation: {formatUsd(output.gemini_generation_cost_usd)}</span>
+                        <span>Grok generation: {formatUsd(output.grok_generation_cost_usd)}</span>
                         <span>Gemini analysis: {formatUsd(output.gemini_analysis_cost_usd)}</span>
                         <span>Iteration total: {formatUsd(output.estimated_total_cost_usd)}</span>
                       </div>

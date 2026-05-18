@@ -54,6 +54,22 @@ class FakeLLMClient:
                 ),
             ]
         )
+        self.grok_outputs = iter(
+            [
+                TextGenerationResult(
+                    text="Grok notes example.com as a relevant domain.",
+                    usage=LLMUsage("grok", "grok-4.3", 80, 30, 110, 0.000175),
+                ),
+                TextGenerationResult(
+                    text="Second Grok response without mention.",
+                    usage=LLMUsage("grok", "grok-4.3", 85, 25, 110, 0.00016875),
+                ),
+                TextGenerationResult(
+                    text="Third Grok response mentions RB.",
+                    usage=LLMUsage("grok", "grok-4.3", 90, 35, 125, 0.0002),
+                ),
+            ]
+        )
         self.analyses = iter(
             [
                 IterationAnalysis(
@@ -86,6 +102,9 @@ class FakeLLMClient:
     def generate_gemini_output(self, _prompt: str) -> TextGenerationResult:
         return next(self.gem_outputs)
 
+    def generate_grok_output(self, _prompt: str) -> TextGenerationResult:
+        return next(self.grok_outputs)
+
     def analyze_iteration(self, **_kwargs) -> IterationAnalysis:
         return next(self.analyses)
 
@@ -108,10 +127,13 @@ def build_settings(database_url: str) -> Settings:
         supabase_anon_key=None,
         openai_api_key="test",
         gemini_api_key="test",
+        grok_api_key="test",
         openai_model="test-openai",
         gemini_model="test-gemini",
         gemini_analysis_model="test-gemini-analysis",
         gemini_sentiment_model="test-gemini-sentiment",
+        grok_model="test-grok",
+        grok_base_url="https://api.x.ai/v1",
         max_llm_retries=1,
         request_timeout_seconds=5.0,
         raw_output_retention_days=30,
@@ -376,9 +398,12 @@ class IntegrationFlowTests(unittest.TestCase):
             self.assertEqual(len(outputs), 3)
             self.assertAlmostEqual(outputs[0].openai_generation_cost_usd or 0.0, 0.000039)
             self.assertAlmostEqual(outputs[1].gemini_generation_cost_usd or 0.0, 0.0000275)
+            self.assertAlmostEqual(outputs[2].grok_generation_cost_usd or 0.0, 0.0002)
             self.assertAlmostEqual(outputs[2].gemini_analysis_cost_usd or 0.0, 0.000024)
             self.assertTrue(result.gpt_domain_mention)
             self.assertTrue(result.gem_brand_mention)
+            self.assertTrue(result.grok_domain_mention)
+            self.assertTrue(result.grok_brand_mention)
             self.assertEqual(result.response_count_avg, 3.0)
             self.assertEqual(result.brand_list, "Rankberry, RB")
             self.assertEqual(result.citation_format, "text, url")

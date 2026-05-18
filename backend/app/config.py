@@ -66,10 +66,13 @@ class Settings:
     supabase_anon_key: typing.Optional[str]
     openai_api_key: typing.Optional[str]
     gemini_api_key: typing.Optional[str]
+    grok_api_key: typing.Optional[str]
     openai_model: str
     gemini_model: str
     gemini_analysis_model: str
     gemini_sentiment_model: str
+    grok_model: str
+    grok_base_url: str
     max_llm_retries: int
     request_timeout_seconds: float
     raw_output_retention_days: int
@@ -117,6 +120,7 @@ def get_settings() -> Settings:
         supabase_anon_key=supabase_anon_key,
         openai_api_key=_read_env("OPENAI_API_KEY"),
         gemini_api_key=_read_env("GEMINI_API_KEY"),
+        grok_api_key=_read_env("GROK_API_KEY") or _read_env("XAI_API_KEY"),
         openai_model=_read_env("OPENAI_MODEL", "gpt-4o-mini") or "gpt-4o-mini",
         gemini_model=_read_env(
             "GEMINI_MODEL", "gemini-2.0-flash") or "gemini-2.0-flash",
@@ -130,6 +134,11 @@ def get_settings() -> Settings:
                 "GEMINI_MODEL", "gemini-2.0-flash"))
             or "gemini-2.0-flash"
         ),
+        grok_model=_read_env("GROK_MODEL", "grok-4.3") or "grok-4.3",
+        grok_base_url=(
+            _read_env("GROK_BASE_URL", "https://api.x.ai/v1")
+            or "https://api.x.ai/v1"
+        ).rstrip("/"),
         max_llm_retries=max(int(_read_env("MAX_LLM_RETRIES", "3") or "3"), 1),
         request_timeout_seconds=max(
             float(_read_env("REQUEST_TIMEOUT_SECONDS", "60") or "60"), 5.0),
